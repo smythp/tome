@@ -2,117 +2,130 @@ from subprocess import call, Popen
 import pynput
 from pynput.keyboard import Key, Listener
 import os
-from sys import argv
-import socket
 from Xlib.error import ConnectionClosedError
+import sqlite3
+import datetime
+from pyperclip import copy, paste
 
-
-listener = None
-
-
-
-mode = 'default'
-
-
-pressed_keys = [[]]
+current_register = 1
+mode = "default"
 
 
 def speak(text_to_speak, speed=270, asynchronous=True):
     if asynchronous:
-        Popen(["espeak",f"-s{speed} -ven+18 -z",text_to_speak])
+        Popen(["espeak", f"-s{speed} -ven+18 -z", text_to_speak])
     else:
-        call(["espeak",f"-s{speed} -ven+18 -z",text_to_speak])
+        call(["espeak", f"-s{speed} -ven+18 -z", text_to_speak])
+
+
+
+def connect():
+    """Connect to the database. Returns a tuple containing connection and cursor objects."""
+
+    connection = sqlite3.connect('lore.db')
+    cursor = connection.cursor()
+    
+    return connection, cursor
+
+
+def retreive():
+    """Retrieve item from database."""
+
+    connection, cursor = connect()
+    
+
+
+
+def store(key, value, label=None, data_type="key", register=current_register):
+
+    connection, cursor = connect()
+
+    cursor.execute(
+        'INSERT INTO lore (data_type, value, label, key, datetime) VALUES (?, ?, ?, ?, ?);',
+        (data_type, value, label, key, datetime.datetime.now())
+        )
+
+    connection.commit()
 
 
 def default(key):
 
     try:
-        # speak('alphanumeric key {0} pressed'.format(
-        #     key.char))
-        if key.char == 'r':
-            change_mode('record')
-        if key.char == 'q':
-            speak('Quit')
-            exit()
+        if key.char == "r":
+            change_mode("read")
+        if key.char == "c":
+            change_mode("clipboard")
     except AttributeError:
-        speak('special key {0} pressed'.format(
-            key))
+        speak("special key {0} pressed".format(key))
 
 
-def on_pressx(key):
-    if key != Key.enter and key != Key.shift and key != Key.shift_r:
-        if key == Key.space:
-            pressed_keys.append([])
-            
-        elif key != Key.backspace:
-            os.system("cls")
-            
-            pressed_keys[-1].append(key)
-
-            print_keys(pressed_keys)
-            
-        else:
-            try:
-                if not len(pressed_keys[-1]):
-                    pressed_keys.pop()
-                    
-                pressed_keys[-1].pop()
-            except:
-                pass
-
-        os.system("cls")
-
-        print_keys(pressed_keys)
-
-
-def record(key):
-    """Handle keys in record mode."""
+def read(key):
+    """Read data from tome to clipbaord."""
     try:
-        if key.char == 'q':
-            speak('Quit')
-            exit()
-
-        # Store some shit
-        key.char
+        pass
+        
     except AttributeError:
-        speak('special key {0} pressed'.format(
-            key), asynchronous=False)
+        pass
+
+
+def clipboard(key):
+    """Store data from clipboard."""
+
+    try:
+        c = key.char
+        data = str(paste())
+        store(c, data)
+        speak(f"Stored {data} as {c} in register {str(current_register)}")
+        exit()
+    except AttributeError:
+        pass
+
 
 
 mode_map = {
-    'default': {
+    "default": {
         "function": default,
         "message": "Tome of Lore",
+    },
+    "clipboard": {
+        "function": clipboard,
+        "message": "Clipboard",
         },
-    'record': {
-        "function": record,
-        "message": "Record",
-        },
+    "read": {
+        "function": read,
+        "message": "Read from tome",
+    },
 }
-
-
 
 
 def start():
     """Start the tome."""
 
-    change_mode('default')
+    try:
+        with Listener(on_press=key_handler, suppress=True) as listener:
+            listener.join()
+    except ConnectionClosedError:
+        pass
+
+
+def key_handler(key):
+    mode_function = mode_map[mode]['function']
+
+    if key.char == "q":
+        speak("Quit")
+        exit()    
+    mode_function(key)
 
 
 def change_mode(mode_name):
     """Change the mode to mode_name."""
-    global listener
-
-    mode_message = mode_map[mode_name]['message']
+    
+    global mode
+    mode_message = mode_map[mode_name]["message"]
     speak(mode_message)
 
-    mode_function = mode_map[mode_name]['function']
+    mode = mode_name
 
-    try:
-        if listener == None:  
-            with Listener(on_press=mode_function, suppress=True) as listener:
-                listener.join()
-    except ConnectionClosedError:
-        pass
 
-start()        
+
+start()

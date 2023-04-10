@@ -4,3 +4,7 @@
 *.pyc
 __pycache__/
 .python-version
+*.db
+test.py
+notes.py
+reset.sh
