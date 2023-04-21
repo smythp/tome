@@ -13,6 +13,26 @@ strip_input = True
 
 
 
+def max_register():
+    """Find the highest created register integer."""
+
+    cursor, connection = connect()
+
+    query = "SELECT register from lore;"
+    results = cursor.execute(query)
+
+    results = results.fetchall()
+    results = [result[0] for result in results if result[0]]
+
+    highest_register = max(results)
+
+    return highest_register
+
+
+def new_register_index():
+    return max_register() + 1
+
+
 def status(boolean):
     """Return on if true, off if false."""
 
@@ -90,6 +110,7 @@ def default(key):
         default_key_map = {
             "r": "read",
             "o": "options",
+            "g": "create_register",
             "c": "clipboard"
             }
         if key.char in default_key_map:
@@ -125,6 +146,17 @@ def options(key):
         pass
 
 
+def create_register(key):
+    """Create a new register at key location."""
+    try:
+        c = key.char
+        highest_register = new_register_index()
+        store(c, None, label='register', data_type="register", register=highest_register)
+        speak(f"Stored {highest_register} as key {c}")
+        
+    except AttributeError:
+        pass
+
 
 def clipboard(key):
     """Store data from clipboard."""
@@ -149,6 +181,10 @@ mode_map = {
         "function": default,
         "message": "Tome of Lore",
     },
+    "create_register": {
+        "function": create_register,
+        "message": "Add register",
+        },
     "options": {
         "function": options,
         "message": "Change options",
@@ -200,4 +236,5 @@ def change_mode(mode_name):
 
 
 
-start()
+if __name__ == '__main__':
+    start()
