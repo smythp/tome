@@ -9,7 +9,14 @@ from pyperclip import copy, paste
 
 current_register = 1
 mode = "default"
+strip_input = True
 
+
+
+def status(boolean):
+    """Return on if true, off if false."""
+
+    return 'on' if boolean else 'off'
 
 def speak(text_to_speak, speed=270, asynchronous=True):
     if asynchronous:
@@ -28,11 +35,40 @@ def connect():
     return connection, cursor
 
 
-def retreive():
+def retrieve(key, register=current_register, fetch='last'):
     """Retrieve item from database."""
 
     connection, cursor = connect()
-    
+
+    if isinstance(key, pynput.keyboard._xorg.KeyCode):
+        key = key.char
+
+
+    print(type(key))
+
+
+    query = "SELECT value FROM lore WHERE register=? and key=?;"
+    if fetch == 'last':
+        query = query[:-1] + " ORDER BY id DESC LIMIT 1;"
+
+
+    results = cursor.execute (query,
+                              (register, str(key)))
+
+    if not results:
+        return
+
+    if fetch == 'all':
+        results = results.fetchall()
+    else:
+        results = results.fetchone()  
+      
+    if results:
+        results = results[0]
+        return results
+
+
+        
 
 
 
@@ -41,8 +77,8 @@ def store(key, value, label=None, data_type="key", register=current_register):
     connection, cursor = connect()
 
     cursor.execute(
-        'INSERT INTO lore (data_type, value, label, key, datetime) VALUES (?, ?, ?, ?, ?);',
-        (data_type, value, label, key, datetime.datetime.now())
+        'INSERT INTO lore (data_type, value, label, key, datetime, register) VALUES (?, ?, ?, ?, ?, ?);',
+        (data_type, value, label, key, datetime.datetime.now() , current_register)
         )
 
     connection.commit()
@@ -51,21 +87,43 @@ def store(key, value, label=None, data_type="key", register=current_register):
 def default(key):
 
     try:
-        if key.char == "r":
-            change_mode("read")
-        if key.char == "c":
-            change_mode("clipboard")
+        default_key_map = {
+            "r": "read",
+            "o": "options",
+            "c": "clipboard"
+            }
+        if key.char in default_key_map:
+            change_mode(default_key_map[key.char])
+
     except AttributeError:
-        speak("special key {0} pressed".format(key))
+        pass
 
 
 def read(key):
-    """Read data from tome to clipbaord."""
+    """Read data from tome to clipboard."""
     try:
-        pass
-        
+        c = key.char
+        results = str(retrieve(key))
+        print(results)
+        copy(results)
+        speak(f"Copied {results} to clipboard")
+        exit()
     except AttributeError:
         pass
+
+
+def options(key):
+    global strip_input
+
+    try:
+        if key.char == "s":
+            strip_input = not strip_input
+            speak(f"Strip input {status(strip_input)}")
+
+
+    except AttributeError:
+        pass
+
 
 
 def clipboard(key):
@@ -74,6 +132,10 @@ def clipboard(key):
     try:
         c = key.char
         data = str(paste())
+
+        if strip_input:
+            data = data.strip()
+
         store(c, data)
         speak(f"Stored {data} as {c} in register {str(current_register)}")
         exit()
@@ -87,6 +149,10 @@ mode_map = {
         "function": default,
         "message": "Tome of Lore",
     },
+    "options": {
+        "function": options,
+        "message": "Change options",
+        },
     "clipboard": {
         "function": clipboard,
         "message": "Clipboard",
@@ -98,8 +164,10 @@ mode_map = {
 }
 
 
+
 def start():
     """Start the tome."""
+    speak("Tome of lore")
 
     try:
         with Listener(on_press=key_handler, suppress=True) as listener:
@@ -110,11 +178,14 @@ def start():
 
 def key_handler(key):
     mode_function = mode_map[mode]['function']
-
-    if key.char == "q":
-        speak("Quit")
-        exit()    
-    mode_function(key)
+    try:
+        if key.char == "q":
+            speak("Quit")
+            exit()
+        mode_function(key)
+    except AttributeError:
+        if key.esc:
+            change_mode('default')
 
 
 def change_mode(mode_name):
@@ -125,6 +196,7 @@ def change_mode(mode_name):
     speak(mode_message)
 
     mode = mode_name
+
 
 
 
