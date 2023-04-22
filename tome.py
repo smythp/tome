@@ -1,6 +1,7 @@
 from subprocess import call, Popen
 import pynput
 from pynput.keyboard import Key, Listener
+from pynput import keyboard
 import os
 from Xlib.error import ConnectionClosedError
 import sqlite3
@@ -10,6 +11,12 @@ from pyperclip import copy, paste
 current_register = 1
 mode = "default"
 strip_input = True
+
+pressed = {
+    'shift': False,
+    'ctrl': False,
+    'alt': False,    
+    }
 
 
 
@@ -64,7 +71,7 @@ def retrieve(key, register=current_register, fetch='last'):
         key = key.char
 
 
-    print(type(key))
+
 
 
     query = "SELECT value FROM lore WHERE register=? and key=?;"
@@ -107,17 +114,38 @@ def store(key, value, label=None, data_type="key", register=current_register):
 def default(key):
 
     try:
-        default_key_map = {
+        key_map = {
             "r": "read",
             "o": "options",
             "g": "create_register",
-            "c": "clipboard"
+            "c": "clipboard",
+            "C": "read_clipboard"
             }
-        if key.char in default_key_map:
-            change_mode(default_key_map[key.char])
+        choose_mode(key.char, key_map)
+
 
     except AttributeError:
         pass
+
+
+def choose_mode(char, key_map):
+    """Given a key and key map, choose a mode and change to it. Handles modifier keys."""
+
+    if pressed['shift']:
+        print('shift pressed')
+        key_map = {key.lower(): key_map[key] for key in key_map if key.isupper()}
+    else:
+        key_map = {key: key_map[key] for key in key_map if key.islower()}
+    char = char.lower()
+    print(key_map)
+    print(char)
+
+    if char in key_map:
+        print("changing")
+        change_mode(key_map[char])
+        return True
+    return False
+
 
 
 def read(key):
@@ -125,7 +153,7 @@ def read(key):
     try:
         c = key.char
         results = str(retrieve(key))
-        print(results)
+
         copy(results)
         speak(f"Copied {results} to clipboard")
         exit()
@@ -158,6 +186,13 @@ def create_register(key):
         pass
 
 
+def read_clipboard(key):
+    """Read the clipboard out loud."""
+    print('read_clipboard function')
+    speak("read clipboard")
+    exit()
+
+
 def clipboard(key):
     """Store data from clipboard."""
 
@@ -181,7 +216,11 @@ mode_map = {
         "function": default,
         "message": "Tome of Lore",
     },
-    "create_register": {
+    "read_clipboard": {
+        "function": read_clipboard,
+        "message": "Read clipboard",
+    },
+        "create_register": {
         "function": create_register,
         "message": "Add register",
         },
@@ -206,7 +245,7 @@ def start():
     speak("Tome of lore")
 
     try:
-        with Listener(on_press=key_handler, suppress=True) as listener:
+        with Listener(on_press=key_handler, on_release=release_handler, suppress=True) as listener:
             listener.join()
     except ConnectionClosedError:
         pass
@@ -220,8 +259,23 @@ def key_handler(key):
             exit()
         mode_function(key)
     except AttributeError:
+        for modifier in ['shift', 'ctrl', 'alt']:
+            key_attribute = getattr(keyboard.Key, modifier)
+            if key == key_attribute:
+                pressed[modifier] = True
+
         if key.esc:
             change_mode('default')
+
+
+def release_handler(key):
+    for modifier in ['shift', 'ctrl', 'alt']:
+        key_attribute = getattr(keyboard.Key, modifier)
+        if key == key_attribute:
+            pressed[modifier] = False
+
+
+
 
 
 def change_mode(mode_name):
@@ -229,8 +283,12 @@ def change_mode(mode_name):
     
     global mode
     mode_message = mode_map[mode_name]["message"]
-    speak(mode_message)
 
+    # Speak the new mode if the mode has changed
+    if mode_name != mode and mode_message:
+        speak(mode_message)
+
+    print(mode_name)
     mode = mode_name
 
 
