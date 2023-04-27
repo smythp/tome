@@ -1,22 +1,35 @@
 from subprocess import call, Popen
 import pynput
-from pynput.keyboard import Key, Listener
+from pynput.keyboard import Key, Listener, Controller
 from pynput import keyboard
 import os
 from Xlib.error import ConnectionClosedError
 import sqlite3
 import datetime
 from pyperclip import copy, paste
+from utilities import dict_factory
+
 
 current_register = 1
 mode = "default"
+suppress_mode_message = False
 strip_input = True
+
+tome_directory = os.path.dirname(__file__)
+database = '/'.join([tome_directory, 'lore.db'])
+
 
 pressed = {
     'shift': False,
     'ctrl': False,
     'alt': False,    
     }
+
+
+
+def bp():
+    pynput.keyboard.Listener.stop
+    breakpoint()
 
 
 
@@ -28,10 +41,16 @@ def max_register():
     query = "SELECT register from lore;"
     results = cursor.execute(query)
 
+
+
     results = results.fetchall()
-    results = [result[0] for result in results if result[0]]
+
+    results = [result['register'] for result in results if result['register']]
+
 
     highest_register = max(results)
+
+
 
     return highest_register
 
@@ -56,9 +75,11 @@ def speak(text_to_speak, speed=270, asynchronous=True):
 def connect():
     """Connect to the database. Returns a tuple containing connection and cursor objects."""
 
-    connection = sqlite3.connect('lore.db')
+    connection = sqlite3.connect(database)
+    connection.row_factory = dict_factory
+
     cursor = connection.cursor()
-    
+
     return connection, cursor
 
 
@@ -70,11 +91,11 @@ def retrieve(key, register=current_register, fetch='last'):
     if isinstance(key, pynput.keyboard._xorg.KeyCode):
         key = key.char
 
+    if fetch == 'last_value':
+        query = "SELECT value FROM lore WHERE register=? and key=?;"
+    else:
+        query = "SELECT * FROM lore WHERE register=? and key=?;"
 
-
-
-
-    query = "SELECT value FROM lore WHERE register=? and key=?;"
     if fetch == 'last':
         query = query[:-1] + " ORDER BY id DESC LIMIT 1;"
 
@@ -89,29 +110,30 @@ def retrieve(key, register=current_register, fetch='last'):
         results = results.fetchall()
     else:
         results = results.fetchone()  
-      
-    if results:
-        results = results[0]
-        return results
+
+    return results
 
 
-        
+def store(key, value, label=None, data_type="key", register=None):
+    global current_register
 
+    if not register:
+        register = current_register
 
-
-def store(key, value, label=None, data_type="key", register=current_register):
+    print('in store:',register)
 
     connection, cursor = connect()
 
     cursor.execute(
         'INSERT INTO lore (data_type, value, label, key, datetime, register) VALUES (?, ?, ?, ?, ?, ?);',
-        (data_type, value, label, key, datetime.datetime.now() , current_register)
+        (data_type, value, label, key, datetime.datetime.now() , register)
         )
-
     connection.commit()
 
 
 def default(key):
+
+    c = key.char
 
     try:
         key_map = {
@@ -121,7 +143,17 @@ def default(key):
             "c": "clipboard",
             "C": "read_clipboard"
             }
-        choose_mode(key.char, key_map)
+
+        no_input = [
+            "read_clipboard",
+            ]
+
+        action = key_map.get(c)
+
+        if action in no_input:
+            mode_map[action]['function']()
+        else:
+            choose_mode(key.char, key_map)
 
 
     except AttributeError:
@@ -132,16 +164,14 @@ def choose_mode(char, key_map):
     """Given a key and key map, choose a mode and change to it. Handles modifier keys."""
 
     if pressed['shift']:
-        print('shift pressed')
+
         key_map = {key.lower(): key_map[key] for key in key_map if key.isupper()}
     else:
         key_map = {key: key_map[key] for key in key_map if key.islower()}
     char = char.lower()
-    print(key_map)
-    print(char)
 
     if char in key_map:
-        print("changing")
+
         change_mode(key_map[char])
         return True
     return False
@@ -152,7 +182,17 @@ def read(key):
     """Read data from tome to clipboard."""
     try:
         c = key.char
-        results = str(retrieve(key))
+
+        enter = enter_register(key)
+        print(enter)
+        if enter:
+            return
+
+        results = str(retrieve(key, register=current_register)['value'])
+        
+        if not results:
+            return
+
 
         copy(results)
         speak(f"Copied {results} to clipboard")
@@ -176,29 +216,69 @@ def options(key):
 
 def create_register(key):
     """Create a new register at key location."""
+    global current_register
+    global suppress_mode_message
+    print('again')
+
     try:
         c = key.char
-        highest_register = new_register_index()
-        store(c, None, label='register', data_type="register", register=highest_register)
-        speak(f"Stored {highest_register} as key {c}")
+        new_register = new_register_index()
+
+        if enter_register(key):
+            print('before return')
+            return
+    
+
+        print('after return')
+        store(c, new_register, label='register', data_type="register", register=current_register)
+        speak(f"Stored {new_register} as key {c}")
+        current_register = new_register
+        suppress_mode_message = True
+        change_mode('default')        
         
     except AttributeError:
         pass
 
 
-def read_clipboard(key):
+def read_clipboard():
     """Read the clipboard out loud."""
-    print('read_clipboard function')
-    speak("read clipboard")
-    exit()
+
+    speak(str(paste()))
+
+
+def enter_register(key):
+    """Check if the selected key is a register and enter that register if true."""
+    global current_register
+
+    retrieved = retrieve(key, fetch='last')
+
+    print(retrieved)
+    if retrieved and retrieved.get('data_type') and retrieved.get('data_type') == 'register':
+        new_register = retrieved['value']
+        speak(f"Entering register {new_register}")
+        current_register = new_register
+
+        return current_register
+
+    return False
+
 
 
 def clipboard(key):
     """Store data from clipboard."""
+    global current_register
+    print(key)
 
     try:
+
         c = key.char
         data = str(paste())
+
+        
+        if enter_register(key):
+            return
+
+        print(current_register)
 
         if strip_input:
             data = data.strip()
@@ -206,7 +286,8 @@ def clipboard(key):
         store(c, data)
         speak(f"Stored {data} as {c} in register {str(current_register)}")
         exit()
-    except AttributeError:
+    except AttributeError as e:
+        print(e)
         pass
 
 
@@ -218,7 +299,7 @@ mode_map = {
     },
     "read_clipboard": {
         "function": read_clipboard,
-        "message": "Read clipboard",
+        "message": "{str(paste())} in clipboard",
     },
         "create_register": {
         "function": create_register,
@@ -230,7 +311,7 @@ mode_map = {
         },
     "clipboard": {
         "function": clipboard,
-        "message": "Clipboard",
+        "message": "Store from clipboard",
         },
     "read": {
         "function": read,
@@ -253,6 +334,8 @@ def start():
 
 def key_handler(key):
     mode_function = mode_map[mode]['function']
+    print(mode)
+
     try:
         if key.char == "q":
             speak("Quit")
@@ -264,7 +347,7 @@ def key_handler(key):
             if key == key_attribute:
                 pressed[modifier] = True
 
-        if key.esc:
+        if getattr(keyboard.Key, 'esc') == key:
             change_mode('default')
 
 
@@ -275,20 +358,20 @@ def release_handler(key):
             pressed[modifier] = False
 
 
-
-
-
 def change_mode(mode_name):
     """Change the mode to mode_name."""
     
     global mode
+    global suppress_mode_message
     mode_message = mode_map[mode_name]["message"]
 
     # Speak the new mode if the mode has changed
-    if mode_name != mode and mode_message:
+    if mode_name != mode and mode_message and not suppress_mode_message:
         speak(mode_message)
 
-    print(mode_name)
+    suppress_mode_message = False
+    
+
     mode = mode_name
 
 
