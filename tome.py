@@ -1,4 +1,3 @@
-from subprocess import call, Popen
 import pynput
 from pynput.keyboard import Key, Listener, Controller
 from pynput import keyboard
@@ -7,17 +6,15 @@ from Xlib.error import ConnectionClosedError
 import sqlite3
 import datetime
 from pyperclip import copy, paste
-from utilities import dict_factory
+from utilities import dict_factory, current_folder, connect, retrieve, new_register_index, store
+from speech import speak
+from data import Lore
 
 
 current_register = 1
 mode = "default"
 suppress_mode_message = False
 strip_input = True
-
-tome_directory = os.path.dirname(__file__)
-database = '/'.join([tome_directory, 'lore.db'])
-
 
 pressed = {
     'shift': False,
@@ -26,109 +23,14 @@ pressed = {
     }
 
 
-
 def bp():
     pynput.keyboard.Listener.stop
     breakpoint()
 
 
-
-def max_register():
-    """Find the highest created register integer."""
-
-    cursor, connection = connect()
-
-    query = "SELECT register from lore;"
-    results = cursor.execute(query)
-
-
-
-    results = results.fetchall()
-
-    results = [result['register'] for result in results if result['register']]
-
-
-    highest_register = max(results)
-
-
-
-    return highest_register
-
-
-def new_register_index():
-    return max_register() + 1
-
-
 def status(boolean):
     """Return on if true, off if false."""
-
     return 'on' if boolean else 'off'
-
-def speak(text_to_speak, speed=270, asynchronous=True):
-    if asynchronous:
-        Popen(["espeak", f"-s{speed} -ven+18 -z", text_to_speak])
-    else:
-        call(["espeak", f"-s{speed} -ven+18 -z", text_to_speak])
-
-
-
-def connect():
-    """Connect to the database. Returns a tuple containing connection and cursor objects."""
-
-    connection = sqlite3.connect(database)
-    connection.row_factory = dict_factory
-
-    cursor = connection.cursor()
-
-    return connection, cursor
-
-
-def retrieve(key, register=current_register, fetch='last'):
-    """Retrieve item from database."""
-
-    connection, cursor = connect()
-
-    if isinstance(key, pynput.keyboard._xorg.KeyCode):
-        key = key.char
-
-    if fetch == 'last_value':
-        query = "SELECT value FROM lore WHERE register=? and key=?;"
-    else:
-        query = "SELECT * FROM lore WHERE register=? and key=?;"
-
-    if fetch == 'last':
-        query = query[:-1] + " ORDER BY id DESC LIMIT 1;"
-
-
-    results = cursor.execute (query,
-                              (register, str(key)))
-
-    if not results:
-        return
-
-    if fetch == 'all':
-        results = results.fetchall()
-    else:
-        results = results.fetchone()  
-
-    return results
-
-
-def store(key, value, label=None, data_type="key", register=None):
-    global current_register
-
-    if not register:
-        register = current_register
-
-    print('in store:',register)
-
-    connection, cursor = connect()
-
-    cursor.execute(
-        'INSERT INTO lore (data_type, value, label, key, datetime, register) VALUES (?, ?, ?, ?, ?, ?);',
-        (data_type, value, label, key, datetime.datetime.now() , register)
-        )
-    connection.commit()
 
 
 def default(key):
@@ -250,11 +152,10 @@ def enter_register(key):
     """Check if the selected key is a register and enter that register if true."""
     global current_register
 
-    retrieved = retrieve(key, fetch='last')
+    lore = Lore(key, current_register)
 
-    print(retrieved)
-    if retrieved and retrieved.get('data_type') and retrieved.get('data_type') == 'register':
-        new_register = retrieved['value']
+    if lore and lore.register:
+        new_register = lore.value
         speak(f"Entering register {new_register}")
         current_register = new_register
 
@@ -283,7 +184,7 @@ def clipboard(key):
         if strip_input:
             data = data.strip()
 
-        store(c, data)
+        store(c, data, register=current_register)
         speak(f"Stored {data} as {c} in register {str(current_register)}")
         exit()
     except AttributeError as e:
