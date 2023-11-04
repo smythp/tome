@@ -29,12 +29,16 @@ class Lore():
             self.datetime = data.get('datetime')
             self.label = data.get('label')
             self.bool = True
-            if self.data_type == 'register':
-                self.register = True
         else:
             self.data_type, self.value, self.datetime, self.label = None, None, None, None
-            self.register = False
             self.bool = False
+
+
+    def register(self):
+        if self.data_type == 'register':
+            return True
+        else:
+            return False
 
 
     def retrieve_data(self):

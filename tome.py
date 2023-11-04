@@ -82,24 +82,32 @@ def choose_mode(char, key_map):
 
 def read(key):
     """Read data from tome to clipboard."""
+    print("function start")
     try:
         c = key.char
 
-        enter = enter_register(key)
-        print(enter)
-        if enter:
+
+        print(c)
+        lore = Lore(key, current_register)
+        print(repr(lore))
+        print('foo')
+        print(lore.register())
+
+        new_register = enter_register(key)
+        print(new_register)
+        if new_register:
+            print('exiting on new register')
             return
 
-        results = str(retrieve(key, register=current_register)['value'])
-        
-        if not results:
+        if not lore:
+            print('exiting on not lore')
             return
 
-
-        copy(results)
-        speak(f"Copied {results} to clipboard")
+        copy(str(lore.value))
+        speak(f"Copied {lore.value} to clipboard")
         exit()
     except AttributeError:
+        print('attribute error')
         pass
 
 
@@ -154,13 +162,13 @@ def enter_register(key):
 
     lore = Lore(key, current_register)
 
-    if lore and lore.register:
+    if lore and lore.register():
         new_register = lore.value
         speak(f"Entering register {new_register}")
         current_register = new_register
 
         return current_register
-
+    
     return False
 
 
