@@ -9,24 +9,25 @@ from pyperclip import copy, paste
 from utilities import dict_factory, current_folder, connect, retrieve, new_register_index, store
 from speech import speak
 from data import Lore
+import sys
 
 
 current_register = 1
 mode = "default"
 suppress_mode_message = False
 strip_input = True
+debug_and_return = False
 
-pressed = {
-    'shift': False,
-    'ctrl': False,
-    'alt': False,    
+
+def set_or_reset_pressed():
+    """Set or reset the currently pressed keys."""
+    global pressed
+
+    pressed = {
+        'shift': False,
+        'ctrl': False,
+        'alt': False,    
     }
-
-
-def bp():
-    pynput.keyboard.Listener.stop
-    breakpoint()
-
 
 def status(boolean):
     """Return on if true, off if false."""
@@ -35,6 +36,8 @@ def status(boolean):
 
 def default(key):
 
+    print('in default')
+    print(key)
     c = key.char
 
     try:
@@ -52,6 +55,8 @@ def default(key):
 
         action = key_map.get(c)
 
+        print(action)
+
         if action in no_input:
             mode_map[action]['function']()
         else:
@@ -59,11 +64,14 @@ def default(key):
 
 
     except AttributeError:
+        print('ok captured here')
         pass
 
 
 def choose_mode(char, key_map):
     """Given a key and key map, choose a mode and change to it. Handles modifier keys."""
+
+
 
     if pressed['shift']:
 
@@ -121,6 +129,7 @@ def options(key):
 
 
     except AttributeError:
+
         pass
 
 
@@ -236,21 +245,32 @@ def start():
 
     try:
         with Listener(on_press=key_handler, on_release=release_handler, suppress=True) as listener:
+            print('joining listener')
             listener.join()
     except ConnectionClosedError:
-        pass
+        print('connection closed')
+        sys.exit()
 
 
 def key_handler(key):
+    global debug_and_return    
+
     mode_function = mode_map[mode]['function']
     print(mode)
 
     try:
         if key.char == "q":
             speak("Quit")
-            exit()
+            sys.exit()
+        elif key.char == '~':
+            speak("Entering debug mode")
+            debug_and_return = True
+            return False
+
+        print(mode_function)
         mode_function(key)
     except AttributeError:
+        print('quit getting excepted for some reason')
         for modifier in ['shift', 'ctrl', 'alt']:
             key_attribute = getattr(keyboard.Key, modifier)
             if key == key_attribute:
@@ -287,4 +307,12 @@ def change_mode(mode_name):
 
 
 if __name__ == '__main__':
-    start()
+    while True:
+        if debug_and_return:
+            debug_and_return = False
+            breakpoint()
+            continue
+        set_or_reset_pressed()
+        start()
+    
+
