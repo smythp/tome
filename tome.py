@@ -167,6 +167,8 @@ def read(key):
     
     try:
         c = key.char
+        # Create a key ID for the current key
+        current_key_id = f"{current_register}:{c}"
         
         # Check if this is a Control key press for operating on the last read value
         if pressed['ctrl']:
@@ -258,9 +260,22 @@ def read(key):
         last_retrieved['key'] = c
         last_retrieved['register'] = current_register
         
-        # Store the key press to recognize repeated presses
-        key_id = f"{current_register}:{c}"
-        key_presses[key_id] = key_presses.get(key_id, 0) + 1
+        # Check if we're switching to a different key than the last one pressed
+        # If so, reset all key press counters to prevent copy-on-second behavior 
+        # when returning to a previously accessed key
+        last_key_pressed = None
+        for existing_key_id in list(key_presses.keys()):
+            if key_presses[existing_key_id] > 0:
+                reg, k = existing_key_id.split(':')
+                # If this key is in the current register and is not the current key
+                if reg == str(current_register) and k != c:
+                    # We've found a different key that was pressed before
+                    # Clear all key press counts since we're switching keys
+                    key_presses = {key_id: 0 for key_id in key_presses}
+                    break
+        
+        # Now count this key press
+        key_presses[current_key_id] = key_presses.get(current_key_id, 0) + 1
         
         if not result:
             # Still update last_retrieved but with a None value
@@ -274,9 +289,9 @@ def read(key):
         last_retrieved['value'] = value
         
         # First press - read it out loud
-        if key_presses[key_id] == 1:
+        if key_presses[current_key_id] == 1:
             speak(f"{value}")
-        # Second press of same key - copy to clipboard (backward compatibility)
+        # Second consecutive press of same key - copy to clipboard (backward compatibility)
         else:
             copy(value)
             speak(f"Copied to clipboard")
