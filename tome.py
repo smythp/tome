@@ -169,34 +169,60 @@ def read(key):
         c = key.char
         
         # Check if this is a Control key press for operating on the last read value
-        if pressed['ctrl'] and last_retrieved['value']:
-            # Control-c: copy to clipboard and exit
-            if key.char == 'c':
-                copy(last_retrieved['value'])
-                speak(f"Copied to clipboard")
-                exit()
-                
-            # Control-b: browse URL in browser and exit
-            elif key.char == 'b':
-                # Check if value is a URL
-                if not is_valid_url(last_retrieved['value']):
-                    # If it's just a domain without protocol, add http://
-                    if re.match(r'^[a-zA-Z0-9][-a-zA-Z0-9.]*\.[a-zA-Z]{2,}(?:\/.*)?$', last_retrieved['value']):
-                        url = "http://" + last_retrieved['value']
-                        speak(f"Adding http protocol")
-                    else:
-                        speak("Not a valid URL")
-                        return
-                else:
-                    url = last_retrieved['value']
+        if pressed['ctrl']:
+            # Operations that require a last retrieved value
+            if last_retrieved['value']:
+                # Control-c: copy to clipboard and exit
+                if key.char == 'c':
+                    copy(last_retrieved['value'])
+                    speak(f"Copied to clipboard")
+                    exit()
                     
-                # Open URL in browser
-                webbrowser.open(url)
-                speak(f"Opening in browser")
-                exit()
-                
+                # Control-b: browse URL in browser and exit
+                elif key.char == 'b':
+                    # Check if value is a URL
+                    if not is_valid_url(last_retrieved['value']):
+                        # If it's just a domain without protocol, add http://
+                        if re.match(r'^[a-zA-Z0-9][-a-zA-Z0-9.]*\.[a-zA-Z]{2,}(?:\/.*)?$', last_retrieved['value']):
+                            url = "http://" + last_retrieved['value']
+                            speak(f"Adding http protocol")
+                        else:
+                            speak("Not a valid URL")
+                            return
+                    else:
+                        url = last_retrieved['value']
+                        
+                    # Open URL in browser
+                    webbrowser.open(url)
+                    speak(f"Opening in browser")
+                    exit()
+            
+            # Operations that require a last retrieved key (even if value is None)
+            if last_retrieved['key']:
+                # Control-y: save clipboard to the last accessed register
+                if key.char == 'y':
+                    # Get clipboard data
+                    data = str(paste())
+                    if strip_input:
+                        data = data.strip()
+                    
+                    # Check if we're overwriting
+                    is_overwrite = False
+                    if last_retrieved['value'] is not None:
+                        is_overwrite = True
+                    
+                    # Store to the last key we interacted with
+                    store(last_retrieved['key'], data, register=last_retrieved['register'])
+                    
+                    if is_overwrite:
+                        speak(f"Overwrote register {last_retrieved['key']} with clipboard data")
+                    else:
+                        speak(f"Wrote clipboard data to register {last_retrieved['key']}")
+                    return
+            
+            # Operations that don't require a last retrieved value or key
             # Control-g: create a register at the current key
-            elif key.char == 'g':
+            if key.char == 'g':
                 # Switch to create_register mode
                 change_mode('create_register')
                 return
@@ -226,22 +252,26 @@ def read(key):
             
         # Get the data for this key
         result = retrieve(key, register=current_register)
-        if not result:
-            speak(f"No data at key {c}")
-            return
-            
+        
+        # Always update the last retrieved key information, even for empty registers
+        # This allows writing to empty registers with Control-y
+        last_retrieved['key'] = c
+        last_retrieved['register'] = current_register
+        
         # Store the key press to recognize repeated presses
         key_id = f"{current_register}:{c}"
         key_presses[key_id] = key_presses.get(key_id, 0) + 1
         
+        if not result:
+            # Still update last_retrieved but with a None value
+            last_retrieved['value'] = None
+            speak(f"No data at key {c}")
+            return
+            
         value = str(result['value'])
         
-        # Update last retrieved info
-        last_retrieved = {
-            'value': value,
-            'key': c,
-            'register': current_register
-        }
+        # Update the value in last_retrieved
+        last_retrieved['value'] = value
         
         # First press - read it out loud
         if key_presses[key_id] == 1:
