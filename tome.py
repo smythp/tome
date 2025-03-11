@@ -138,28 +138,33 @@ def store(key, value, label=None, data_type="key", register=None, parent_registe
 
 def default(key):
 
-    c = key.char
-
     try:
+        c = key.char
+        
+        # Command mapping (now requiring Ctrl key)
         key_map = {
             "r": "read",
             "o": "options",
             "g": "create_register",
             "c": "clipboard",
-            "C": "read_clipboard"
+            "j": "read_clipboard"  # Changed from "C" to "j" (for Ctrl-j)
             }
 
         no_input = [
             "read_clipboard",
             ]
 
-        action = key_map.get(c)
-
-        if action in no_input:
-            mode_map[action]['function']()
+        # Handle Ctrl key commands
+        if pressed['ctrl']:
+            action = key_map.get(c)
+            if action:
+                if action in no_input:
+                    mode_map[action]['function']()
+                else:
+                    choose_mode(c, key_map)
         else:
-            choose_mode(key.char, key_map)
-
+            # Regular keys are not handled for commands in default mode
+            pass
 
     except AttributeError:
         pass
@@ -167,16 +172,11 @@ def default(key):
 
 def choose_mode(char, key_map):
     """Given a key and key map, choose a mode and change to it. Handles modifier keys."""
-
-    if pressed['shift']:
-
-        key_map = {key.lower(): key_map[key] for key in key_map if key.isupper()}
-    else:
-        key_map = {key: key_map[key] for key in key_map if key.islower()}
-    char = char.lower()
-
+    
+    # For Ctrl commands, we don't need to filter the key_map
+    # since we already checked for Ctrl in the default function
+    
     if char in key_map:
-
         change_mode(key_map[char])
         return True
     return False
@@ -342,20 +342,20 @@ mode_map = {
     },
     "read_clipboard": {
         "function": read_clipboard,
-        "message": "{str(paste())} in clipboard",
+        "message": "Reading clipboard",
     },
-        "create_register": {
+    "create_register": {
         "function": create_register,
         "message": "Add register",
-        },
+    },
     "options": {
         "function": options,
         "message": "Change options",
-        },
+    },
     "clipboard": {
         "function": clipboard,
         "message": "Store from clipboard",
-        },
+    },
     "read": {
         "function": read,
         "message": "Read from tome",
