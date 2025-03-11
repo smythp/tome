@@ -1,4 +1,4 @@
-from subprocess import call, Popen
+from subprocess import call, Popen, DEVNULL
 import pynput
 from pynput.keyboard import Key, Listener, Controller
 from pynput import keyboard
@@ -64,7 +64,19 @@ def status(boolean):
 
     return 'on' if boolean else 'off'
 
+def kill_speech():
+    """Kill any running espeak processes"""
+    try:
+        # Try to kill any running espeak processes
+        call(["killall", "espeak"], stderr=DEVNULL)
+    except:
+        # Ignore errors if no processes were killed
+        pass
+
 def speak(text_to_speak, speed=270, asynchronous=True):
+    # Kill any ongoing speech before starting a new one
+    kill_speech()
+    
     if asynchronous:
         Popen(["espeak", f"-s{speed} -ven+18 -z", text_to_speak])
     else:
@@ -524,6 +536,12 @@ def key_handler(key):
     print(mode)
 
     try:
+        # Check for Control-Alt-v to kill all speech
+        if key.char == "v" and pressed['ctrl'] and pressed['alt']:
+            kill_speech()
+            speak("Silenced")
+            return
+            
         # Global quit command
         if key.char == "q":
             speak("Quit")
