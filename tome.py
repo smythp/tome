@@ -152,45 +152,65 @@ def default(key):
 # choose_mode function has been replaced by direct mode switching in key_handler
 
 
-# Track the last retrieved value for Control key operations
-last_retrieved_value = None
+# Track the last retrieved key info for Control key operations
+last_retrieved = {
+    'value': None,      # Last retrieved value
+    'key': None,        # Key that was pressed
+    'register': None    # Register from which value was retrieved
+}
 
 def read(key):
     """Read data from tome to clipboard."""
     global mode
     global key_presses
-    global last_retrieved_value
+    global last_retrieved
     
     try:
         c = key.char
         
         # Check if this is a Control key press for operating on the last read value
-        if pressed['ctrl'] and last_retrieved_value:
+        if pressed['ctrl'] and last_retrieved['value']:
             # Control-c: copy to clipboard and exit
             if key.char == 'c':
-                copy(last_retrieved_value)
+                copy(last_retrieved['value'])
                 speak(f"Copied to clipboard")
                 exit()
                 
-            # Control-b: browse URL and exit
+            # Control-b: browse URL in browser and exit
             elif key.char == 'b':
                 # Check if value is a URL
-                if not is_valid_url(last_retrieved_value):
+                if not is_valid_url(last_retrieved['value']):
                     # If it's just a domain without protocol, add http://
-                    if re.match(r'^[a-zA-Z0-9][-a-zA-Z0-9.]*\.[a-zA-Z]{2,}(?:\/.*)?$', last_retrieved_value):
-                        url = "http://" + last_retrieved_value
+                    if re.match(r'^[a-zA-Z0-9][-a-zA-Z0-9.]*\.[a-zA-Z]{2,}(?:\/.*)?$', last_retrieved['value']):
+                        url = "http://" + last_retrieved['value']
                         speak(f"Adding http protocol")
                     else:
                         speak("Not a valid URL")
                         return
                 else:
-                    url = last_retrieved_value
+                    url = last_retrieved['value']
                     
                 # Open URL in browser
                 webbrowser.open(url)
                 speak(f"Opening in browser")
                 exit()
-            
+                
+            # Control-g: create a register at the current key
+            elif key.char == 'g':
+                # Switch to create_register mode
+                change_mode('create_register')
+                return
+                
+            # Control-o: go to options mode
+            elif key.char == 'o':
+                change_mode('options')
+                return
+                
+            # Control-j: read clipboard
+            elif key.char == 'j':
+                read_clipboard()
+                return
+                
             return
         
         # Check if we're dealing with a register key
@@ -200,7 +220,8 @@ def read(key):
             change_mode('read')
             # Clear key presses when entering a new register
             key_presses = {}
-            last_retrieved_value = None
+            # Reset last retrieved info
+            last_retrieved = {'value': None, 'key': None, 'register': None}
             return
             
         # Get the data for this key
@@ -214,7 +235,13 @@ def read(key):
         key_presses[key_id] = key_presses.get(key_id, 0) + 1
         
         value = str(result['value'])
-        last_retrieved_value = value
+        
+        # Update last retrieved info
+        last_retrieved = {
+            'value': value,
+            'key': c,
+            'register': current_register
+        }
         
         # First press - read it out loud
         if key_presses[key_id] == 1:
@@ -266,7 +293,7 @@ def create_register(key):
         register_stack.append(current_register)
         
         suppress_mode_message = True
-        change_mode('default')        
+        change_mode('read')  # Return to read mode after creating register
         
     except AttributeError:
         pass
@@ -385,7 +412,11 @@ def clipboard(key):
 
         store(c, data)
         speak(f"Stored {data} as {c} in register {str(current_register)}")
-        exit()
+        
+        # Return to read mode after storing instead of exiting
+        change_mode('read')
+        return
+        
     except AttributeError as e:
         print(e)
         pass
@@ -448,32 +479,8 @@ def key_handler(key):
         if key.char == "q":
             speak("Quit")
             exit()
-            
-        # Check for mode switching via Control keys from any mode
-        if pressed['ctrl']:
-            # Command mapping for mode switching
-            key_map = {
-                "r": "read",
-                "o": "options",
-                "g": "create_register",
-                "c": "clipboard",
-                "j": "read_clipboard", 
-                "b": "browse"
-            }
-            
-            # If the pressed key is a mode command, switch to that mode
-            if key.char in key_map:
-                action = key_map[key.char]
-                if action == "read_clipboard":
-                    # Direct actions
-                    mode_map[action]['function']()
-                    return
-                else:
-                    # Mode switches
-                    change_mode(action)
-                    return
         
-        # If no mode switching, pass the key to the current mode's handler
+        # All other keypresses are handled by the current mode's function
         mode_function(key)
     except AttributeError:
         for modifier in ['shift', 'ctrl', 'alt']:
