@@ -3,6 +3,8 @@ import pynput
 from pynput.keyboard import Key, Listener, Controller
 from pynput import keyboard
 import os
+import webbrowser
+import re
 from Xlib.error import ConnectionClosedError
 import sqlite3
 import datetime
@@ -147,7 +149,8 @@ def default(key):
             "o": "options",
             "g": "create_register",
             "c": "clipboard",
-            "j": "read_clipboard"  # Changed from "C" to "j" (for Ctrl-j)
+            "j": "read_clipboard",  # Changed from "C" to "j" (for Ctrl-j)
+            "b": "browse"           # Added new browse command
             }
 
         no_input = [
@@ -273,6 +276,58 @@ def read_clipboard():
     speak(str(paste()))
 
 
+def browse(key):
+    """Open URL from stored data in the default browser."""
+    
+    try:
+        c = key.char
+        
+        # Check if we're dealing with a register key
+        enter = enter_register(key)
+        if enter:
+            # Stay in browse mode when entering a register
+            change_mode('browse')
+            return
+            
+        # Get the data for this key
+        result = retrieve(key, register=current_register)
+        if not result:
+            speak(f"No data at key {c}")
+            return
+            
+        value = str(result['value'])
+        
+        # Check if value is a URL
+        if not is_valid_url(value):
+            # If it's just a domain without protocol, add http://
+            if re.match(r'^[a-zA-Z0-9][-a-zA-Z0-9.]*\.[a-zA-Z]{2,}(?:\/.*)?$', value):
+                value = "http://" + value
+                speak(f"Adding http protocol to {value}")
+            else:
+                speak("Not a valid URL")
+                return
+                
+        # Open URL in browser
+        webbrowser.open(value)
+        speak(f"Opening {value}")
+        exit()
+        
+    except AttributeError:
+        pass
+
+
+def is_valid_url(url):
+    """Check if a string is a valid URL."""
+    regex = re.compile(
+        r'^(?:http|ftp)s?://'  # http://, https://, ftp://, ftps://
+        r'(?:(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+(?:[A-Z]{2,6}\.?|[A-Z0-9-]{2,}\.?)|'  # domain
+        r'localhost|'  # localhost
+        r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})'  # IP
+        r'(?::\d+)?'  # optional port
+        r'(?:/?|[/?]\S+)$', re.IGNORECASE)
+    return re.match(regex, url) is not None
+
+
 def enter_register(key):
     """Check if the selected key is a register and enter that register if true."""
     global current_register
@@ -359,6 +414,10 @@ mode_map = {
     "read": {
         "function": read,
         "message": "Read from tome",
+    },
+    "browse": {
+        "function": browse,
+        "message": "Browse URL",
     },
 }
 
