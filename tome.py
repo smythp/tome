@@ -139,50 +139,17 @@ def store(key, value, label=None, data_type="key", register=None, parent_registe
 
 
 def default(key):
-
+    """Default mode - doesn't handle any key presses except for mode switching.
+    Mode switching is now handled at the key_handler level for all modes."""
     try:
-        c = key.char
-        
-        # Command mapping (now requiring Ctrl key)
-        key_map = {
-            "r": "read",
-            "o": "options",
-            "g": "create_register",
-            "c": "clipboard",
-            "j": "read_clipboard",  # Changed from "C" to "j" (for Ctrl-j)
-            "b": "browse"           # Added new browse command
-            }
-
-        no_input = [
-            "read_clipboard",
-            ]
-
-        # Handle Ctrl key commands
-        if pressed['ctrl']:
-            action = key_map.get(c)
-            if action:
-                if action in no_input:
-                    mode_map[action]['function']()
-                else:
-                    choose_mode(c, key_map)
-        else:
-            # Regular keys are not handled for commands in default mode
-            pass
-
+        # Default mode doesn't do anything with regular key presses
+        # Control key mode switches are now handled in the global key_handler
+        pass
     except AttributeError:
         pass
 
 
-def choose_mode(char, key_map):
-    """Given a key and key map, choose a mode and change to it. Handles modifier keys."""
-    
-    # For Ctrl commands, we don't need to filter the key_map
-    # since we already checked for Ctrl in the default function
-    
-    if char in key_map:
-        change_mode(key_map[char])
-        return True
-    return False
+# choose_mode function has been replaced by direct mode switching in key_handler
 
 
 # Track the last retrieved value for Control key operations
@@ -461,6 +428,9 @@ mode_map = {
 def start():
     """Start the tome."""
     speak("Tome of lore")
+    
+    # Start in read mode
+    change_mode("read")
 
     try:
         with Listener(on_press=key_handler, on_release=release_handler, suppress=True) as listener:
@@ -474,9 +444,36 @@ def key_handler(key):
     print(mode)
 
     try:
+        # Global quit command
         if key.char == "q":
             speak("Quit")
             exit()
+            
+        # Check for mode switching via Control keys from any mode
+        if pressed['ctrl']:
+            # Command mapping for mode switching
+            key_map = {
+                "r": "read",
+                "o": "options",
+                "g": "create_register",
+                "c": "clipboard",
+                "j": "read_clipboard", 
+                "b": "browse"
+            }
+            
+            # If the pressed key is a mode command, switch to that mode
+            if key.char in key_map:
+                action = key_map[key.char]
+                if action == "read_clipboard":
+                    # Direct actions
+                    mode_map[action]['function']()
+                    return
+                else:
+                    # Mode switches
+                    change_mode(action)
+                    return
+        
+        # If no mode switching, pass the key to the current mode's handler
         mode_function(key)
     except AttributeError:
         for modifier in ['shift', 'ctrl', 'alt']:
