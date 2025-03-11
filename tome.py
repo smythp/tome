@@ -164,6 +164,9 @@ def default(key):
 # choose_mode function has been replaced by direct mode switching in key_handler
 
 
+# Buffer path tracking
+buffer_path = []
+
 # Track the last retrieved key info for Control key operations
 last_retrieved = {
     'value': None,      # Last retrieved value
@@ -233,16 +236,45 @@ def read(key):
                     else:
                         speak(f"Wrote clipboard data to register {last_retrieved['key']}")
                     return
+                    
+                # Control-g: create a buffer at the last accessed key
+                elif key.char == 'g':
+                    if last_retrieved['key'] is not None:
+                        # Check if a buffer already exists at this key
+                        existing_register = retrieve(last_retrieved['key'], register=last_retrieved['register'])
+                        if existing_register and existing_register.get('data_type') == 'register':
+                            # If a buffer already exists, just enter it
+                            buffer_key = last_retrieved['key']
+                            # Reset buffer path (this is for direct creation, not navigation)
+                            buffer_path.append(buffer_key)
+                            buffer_name = ''.join(buffer_path)
+                            speak(f"Buffer already exists at {buffer_key}")
+                            enter_register(buffer_key)
+                            return
+                            
+                        # Create a new register/buffer
+                        new_buffer_id = new_register_index()
+                        
+                        # Current path plus the new key
+                        new_key = last_retrieved['key']
+                        buffer_path.append(new_key)
+                        buffer_name = ''.join(buffer_path)
+                        
+                        # Store buffer with parent reference
+                        store(new_key, new_buffer_id, label='buffer', data_type="register", 
+                              register=last_retrieved['register'], parent_register=last_retrieved['register'])
+                        speak(f"Created buffer {buffer_name}")
+                        
+                        # Enter the new buffer
+                        current_register = new_buffer_id
+                        register_stack.append(current_register)
+                        
+                        return
+                    return
             
             # Operations that don't require a last retrieved value or key
-            # Control-g: create a register at the current key
-            if key.char == 'g':
-                # Switch to create_register mode
-                change_mode('create_register')
-                return
-                
             # Control-o: go to options mode
-            elif key.char == 'o':
+            if key.char == 'o':
                 change_mode('options')
                 return
                 
@@ -326,34 +358,7 @@ def options(key):
         pass
 
 
-def create_register(key):
-    """Create a new register at key location."""
-    global current_register
-    global register_stack
-    global suppress_mode_message
-
-    try:
-        c = key.char
-        new_register = new_register_index()
-
-        # Check if key is already a register
-        if enter_register(key):
-            return
-    
-        # Store new register with parent reference
-        store(c, new_register, label='register', data_type="register", 
-              register=current_register, parent_register=current_register)
-        speak(f"Stored register {new_register} as key {c}")
-        
-        # Enter the new register
-        current_register = new_register
-        register_stack.append(current_register)
-        
-        suppress_mode_message = True
-        change_mode('read')  # Return to read mode after creating register
-        
-    except AttributeError:
-        pass
+# create_register function replaced by direct buffer creation in read mode with Control-g
 
 
 def read_clipboard():
@@ -415,15 +420,26 @@ def is_valid_url(url):
 
 
 def enter_register(key):
-    """Check if the selected key is a register and enter that register if true."""
+    """Check if the selected key is a register and enter that buffer if true."""
     global current_register
     global register_stack
+    global buffer_path
 
     retrieved = retrieve(key, fetch='last')
 
     if retrieved and retrieved.get('data_type') and retrieved.get('data_type') == 'register':
         new_register = retrieved['value']
-        speak(f"Entering register {new_register}")
+        
+        # Track the path to this buffer
+        if isinstance(key, pynput.keyboard._xorg.KeyCode):
+            buffer_path.append(key.char)
+        else:
+            buffer_path.append(str(key))
+            
+        # Create buffer name from path
+        buffer_name = ''.join(buffer_path)
+        
+        speak(f"Entering buffer {buffer_name}")
         current_register = new_register
         register_stack.append(current_register)  # Add to navigation stack
         
@@ -433,17 +449,26 @@ def enter_register(key):
 
 
 def exit_register():
-    """Exit current register and return to parent register."""
+    """Exit current buffer and return to parent buffer."""
     global current_register
     global register_stack
+    global buffer_path
     
     if len(register_stack) > 1:
         register_stack.pop()  # Remove current register
         current_register = register_stack[-1]  # Set current to parent
-        speak(f"Returning to register {current_register}")
+        
+        # Update buffer path
+        if buffer_path:
+            buffer_path.pop()  # Remove last key from path
+            
+        # Get buffer name from path
+        buffer_name = "root" if not buffer_path else ''.join(buffer_path)
+        
+        speak(f"Returning to buffer {buffer_name}")
         return True
     else:
-        speak("Already at root register")
+        speak("Already at root buffer")
         return False
 
 
@@ -489,10 +514,6 @@ mode_map = {
         "function": read_clipboard,
         "message": "Reading clipboard",
     },
-    "create_register": {
-        "function": create_register,
-        "message": "Add register",
-    },
     "options": {
         "function": options,
         "message": "Change options",
@@ -516,6 +537,10 @@ mode_map = {
 def start():
     """Start the tome."""
     global suppress_mode_message
+    global buffer_path
+    
+    # Initialize buffer path to empty list
+    buffer_path = []
     
     # Start in read mode - suppress the initial speak since we'll do it manually
     suppress_mode_message = True
