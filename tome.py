@@ -185,14 +185,46 @@ def choose_mode(char, key_map):
     return False
 
 
+# Track the last retrieved value for Control key operations
+last_retrieved_value = None
 
 def read(key):
     """Read data from tome to clipboard."""
     global mode
     global key_presses
+    global last_retrieved_value
     
     try:
         c = key.char
+        
+        # Check if this is a Control key press for operating on the last read value
+        if pressed['ctrl'] and last_retrieved_value:
+            # Control-c: copy to clipboard and exit
+            if key.char == 'c':
+                copy(last_retrieved_value)
+                speak(f"Copied to clipboard")
+                exit()
+                
+            # Control-b: browse URL and exit
+            elif key.char == 'b':
+                # Check if value is a URL
+                if not is_valid_url(last_retrieved_value):
+                    # If it's just a domain without protocol, add http://
+                    if re.match(r'^[a-zA-Z0-9][-a-zA-Z0-9.]*\.[a-zA-Z]{2,}(?:\/.*)?$', last_retrieved_value):
+                        url = "http://" + last_retrieved_value
+                        speak(f"Adding http protocol")
+                    else:
+                        speak("Not a valid URL")
+                        return
+                else:
+                    url = last_retrieved_value
+                    
+                # Open URL in browser
+                webbrowser.open(url)
+                speak(f"Opening in browser")
+                exit()
+            
+            return
         
         # Check if we're dealing with a register key
         enter = enter_register(key)
@@ -201,6 +233,7 @@ def read(key):
             change_mode('read')
             # Clear key presses when entering a new register
             key_presses = {}
+            last_retrieved_value = None
             return
             
         # Get the data for this key
@@ -214,38 +247,17 @@ def read(key):
         key_presses[key_id] = key_presses.get(key_id, 0) + 1
         
         value = str(result['value'])
+        last_retrieved_value = value
         
         # First press - read it out loud
         if key_presses[key_id] == 1:
             speak(f"{value}")
-        # Second press - check for Ctrl modifiers
+        # Second press of same key - copy to clipboard (backward compatibility)
         else:
-            # Handle Ctrl+c: copy to clipboard and exit
-            if pressed['ctrl'] and c == 'c':
-                copy(value)
-                speak(f"Copied {value} to clipboard")
-                exit()
-            # Handle Ctrl+b: browse URL and exit
-            elif pressed['ctrl'] and c == 'b':
-                # Check if value is a URL
-                if not is_valid_url(value):
-                    # If it's just a domain without protocol, add http://
-                    if re.match(r'^[a-zA-Z0-9][-a-zA-Z0-9.]*\.[a-zA-Z]{2,}(?:\/.*)?$', value):
-                        value = "http://" + value
-                        speak(f"Adding http protocol to {value}")
-                    else:
-                        speak("Not a valid URL")
-                        return
-                        
-                # Open URL in browser
-                webbrowser.open(value)
-                speak(f"Opening {value}")
-                exit()
-            # Default behavior - copy to clipboard (for backwards compatibility)
-            else:
-                copy(value)
-                speak(f"Copied {value} to clipboard")
-                exit()
+            copy(value)
+            speak(f"Copied to clipboard")
+            exit()
+            
     except AttributeError:
         pass
 
