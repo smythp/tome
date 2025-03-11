@@ -179,6 +179,7 @@ def read(key):
     global mode
     global key_presses
     global last_retrieved
+    global current_register
     
     try:
         c = key.char
