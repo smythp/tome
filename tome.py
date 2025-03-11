@@ -488,10 +488,14 @@ mode_map = {
 
 def start():
     """Start the tome."""
-    speak("Tome of lore")
+    global suppress_mode_message
     
-    # Start in read mode
+    # Start in read mode - suppress the initial speak since we'll do it manually
+    suppress_mode_message = True
     change_mode("read")
+    
+    # Now speak the welcome message
+    speak("Tome of lore")
 
     try:
         with Listener(on_press=key_handler, on_release=release_handler, suppress=True) as listener:
