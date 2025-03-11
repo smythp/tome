@@ -218,11 +218,34 @@ def read(key):
         # First press - read it out loud
         if key_presses[key_id] == 1:
             speak(f"{value}")
-        # Second press - copy to clipboard and exit
+        # Second press - check for Ctrl modifiers
         else:
-            copy(value)
-            speak(f"Copied {value} to clipboard")
-            exit()
+            # Handle Ctrl+c: copy to clipboard and exit
+            if pressed['ctrl'] and c == 'c':
+                copy(value)
+                speak(f"Copied {value} to clipboard")
+                exit()
+            # Handle Ctrl+b: browse URL and exit
+            elif pressed['ctrl'] and c == 'b':
+                # Check if value is a URL
+                if not is_valid_url(value):
+                    # If it's just a domain without protocol, add http://
+                    if re.match(r'^[a-zA-Z0-9][-a-zA-Z0-9.]*\.[a-zA-Z]{2,}(?:\/.*)?$', value):
+                        value = "http://" + value
+                        speak(f"Adding http protocol to {value}")
+                    else:
+                        speak("Not a valid URL")
+                        return
+                        
+                # Open URL in browser
+                webbrowser.open(value)
+                speak(f"Opening {value}")
+                exit()
+            # Default behavior - copy to clipboard (for backwards compatibility)
+            else:
+                copy(value)
+                speak(f"Copied {value} to clipboard")
+                exit()
     except AttributeError:
         pass
 
