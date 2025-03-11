@@ -14,6 +14,8 @@ current_register = 1
 mode = "default"
 suppress_mode_message = False
 strip_input = True
+register_stack = [1]  # Track register navigation hierarchy
+key_presses = {}  # Track key presses for read functionality
 
 tome_directory = os.path.dirname(__file__)
 database = '/'.join([tome_directory, 'lore.db'])
@@ -36,22 +38,18 @@ def bp():
 def max_register():
     """Find the highest created register integer."""
 
-    cursor, connection = connect()
+    connection, cursor = connect()
 
     query = "SELECT register from lore;"
     results = cursor.execute(query)
-
-
-
     results = results.fetchall()
 
     results = [result['register'] for result in results if result['register']]
 
-
+    if not results:
+        return 0  # Return 0 if no registers exist yet
+    
     highest_register = max(results)
-
-
-
     return highest_register
 
 
@@ -114,20 +112,27 @@ def retrieve(key, register=current_register, fetch='last'):
     return results
 
 
-def store(key, value, label=None, data_type="key", register=None):
+def store(key, value, label=None, data_type="key", register=None, parent_register=None):
     global current_register
 
     if not register:
         register = current_register
-
-    print('in store:',register)
+    
+    if parent_register is None and data_type == "register":
+        parent_register = current_register
 
     connection, cursor = connect()
 
-    cursor.execute(
-        'INSERT INTO lore (data_type, value, label, key, datetime, register) VALUES (?, ?, ?, ?, ?, ?);',
-        (data_type, value, label, key, datetime.datetime.now() , register)
-        )
+    if data_type == "register":
+        cursor.execute(
+            'INSERT INTO lore (data_type, value, label, key, datetime, register, parent_register) VALUES (?, ?, ?, ?, ?, ?, ?);',
+            (data_type, value, label, key, datetime.datetime.now(), register, parent_register)
+            )
+    else:
+        cursor.execute(
+            'INSERT INTO lore (data_type, value, label, key, datetime, register, parent_register) VALUES (?, ?, ?, ?, ?, ?, ?);',
+            (data_type, value, label, key, datetime.datetime.now(), register, None)
+            )
     connection.commit()
 
 
@@ -180,23 +185,41 @@ def choose_mode(char, key_map):
 
 def read(key):
     """Read data from tome to clipboard."""
+    global mode
+    global key_presses
+    
     try:
         c = key.char
-
-        enter = enter_register(key)
-        print(enter)
-        if enter:
-            return
-
-        results = str(retrieve(key, register=current_register)['value'])
         
-        if not results:
+        # Check if we're dealing with a register key
+        enter = enter_register(key)
+        if enter:
+            # Stay in read mode when entering a register
+            change_mode('read')
+            # Clear key presses when entering a new register
+            key_presses = {}
             return
-
-
-        copy(results)
-        speak(f"Copied {results} to clipboard")
-        exit()
+            
+        # Get the data for this key
+        result = retrieve(key, register=current_register)
+        if not result:
+            speak(f"No data at key {c}")
+            return
+            
+        # Store the key press to recognize repeated presses
+        key_id = f"{current_register}:{c}"
+        key_presses[key_id] = key_presses.get(key_id, 0) + 1
+        
+        value = str(result['value'])
+        
+        # First press - read it out loud
+        if key_presses[key_id] == 1:
+            speak(f"{value}")
+        # Second press - copy to clipboard and exit
+        else:
+            copy(value)
+            speak(f"Copied {value} to clipboard")
+            exit()
     except AttributeError:
         pass
 
@@ -217,22 +240,26 @@ def options(key):
 def create_register(key):
     """Create a new register at key location."""
     global current_register
+    global register_stack
     global suppress_mode_message
-    print('again')
 
     try:
         c = key.char
         new_register = new_register_index()
 
+        # Check if key is already a register
         if enter_register(key):
-            print('before return')
             return
     
-
-        print('after return')
-        store(c, new_register, label='register', data_type="register", register=current_register)
-        speak(f"Stored {new_register} as key {c}")
+        # Store new register with parent reference
+        store(c, new_register, label='register', data_type="register", 
+              register=current_register, parent_register=current_register)
+        speak(f"Stored register {new_register} as key {c}")
+        
+        # Enter the new register
         current_register = new_register
+        register_stack.append(current_register)
+        
         suppress_mode_message = True
         change_mode('default')        
         
@@ -249,18 +276,34 @@ def read_clipboard():
 def enter_register(key):
     """Check if the selected key is a register and enter that register if true."""
     global current_register
+    global register_stack
 
     retrieved = retrieve(key, fetch='last')
 
-    print(retrieved)
     if retrieved and retrieved.get('data_type') and retrieved.get('data_type') == 'register':
         new_register = retrieved['value']
         speak(f"Entering register {new_register}")
         current_register = new_register
-
+        register_stack.append(current_register)  # Add to navigation stack
+        
         return current_register
 
     return False
+
+
+def exit_register():
+    """Exit current register and return to parent register."""
+    global current_register
+    global register_stack
+    
+    if len(register_stack) > 1:
+        register_stack.pop()  # Remove current register
+        current_register = register_stack[-1]  # Set current to parent
+        speak(f"Returning to register {current_register}")
+        return True
+    else:
+        speak("Already at root register")
+        return False
 
 
 
@@ -347,8 +390,10 @@ def key_handler(key):
             if key == key_attribute:
                 pressed[modifier] = True
 
-        if getattr(keyboard.Key, 'esc') == key:
+        if key == keyboard.Key.esc:
             change_mode('default')
+        elif key == keyboard.Key.backspace:
+            exit_register()
 
 
 def release_handler(key):
@@ -363,15 +408,19 @@ def change_mode(mode_name):
     
     global mode
     global suppress_mode_message
+    global key_presses
+    
     mode_message = mode_map[mode_name]["message"]
 
+    # Clear key presses when changing modes
+    if mode_name != mode:
+        key_presses = {}
+    
     # Speak the new mode if the mode has changed
     if mode_name != mode and mode_message and not suppress_mode_message:
         speak(mode_message)
 
     suppress_mode_message = False
-    
-
     mode = mode_name
 
 
