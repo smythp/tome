@@ -1,7 +1,14 @@
+# /// script
+# requires-python = ">=3.8"
+# dependencies = [
+#     "pynput",
+#     "pyperclip",
+# ]
+# ///
 from subprocess import call, Popen, DEVNULL
 import pynput
-from pynput.keyboard import Key, Listener, Controller
 from pynput import keyboard
+from pynput.keyboard import Key, Controller
 import os
 import webbrowser
 import re
@@ -9,7 +16,7 @@ from Xlib.error import ConnectionClosedError
 import sqlite3
 import datetime
 from pyperclip import copy, paste
-from utilities import dict_factory
+from utilities import dict_factory, get_global_history
 
 
 current_register = 1
@@ -32,7 +39,7 @@ pressed = {
 
 
 def bp():
-    pynput.keyboard.Listener.stop
+    pynput.keyboard.Listener.stop()
     breakpoint()
 
 
@@ -110,15 +117,16 @@ def retrieve(key, register=current_register, fetch='last'):
 
     if fetch == 'last':
         query = query[:-1] + " ORDER BY id DESC LIMIT 1;"
+    elif fetch == 'history':
+        query = query[:-1] + " ORDER BY id DESC;"
 
-
-    results = cursor.execute (query,
-                              (register, str(key)))
+    results = cursor.execute(query,
+                            (register, str(key)))
 
     if not results:
         return
 
-    if fetch == 'all':
+    if fetch == 'all' or fetch == 'history':
         results = results.fetchall()
     else:
         results = results.fetchone()  
@@ -150,18 +158,24 @@ def store(key, value, label=None, data_type="key", register=None, parent_registe
     connection.commit()
 
 
+def delete_entry(entry_id):
+    """Delete an entry from the database by its ID."""
+    connection, cursor = connect()
+    
+    cursor.execute('DELETE FROM lore WHERE id = ?;', (entry_id,))
+    connection.commit()
+    
+    return cursor.rowcount > 0  # Return True if at least one row was deleted
+
+
 def default(key):
-    """Default mode - doesn't handle any key presses except for mode switching.
-    Mode switching is now handled at the key_handler level for all modes."""
+    """Default mode - base state for the application.
+    Mode switching is handled at the key_handler level for all modes."""
     try:
-        # Default mode doesn't do anything with regular key presses
-        # Control key mode switches are now handled in the global key_handler
+        # Default mode doesn't process any regular key presses
         pass
     except AttributeError:
         pass
-
-
-# choose_mode function has been replaced by direct mode switching in key_handler
 
 
 # Buffer path tracking
@@ -174,12 +188,36 @@ last_retrieved = {
     'register': None    # Register from which value was retrieved
 }
 
+# History tracking
+history_state = {
+    'active': False,    # Whether history mode is active
+    'key': None,        # Key for which history is being viewed
+    'register': None,   # Register in which the key exists
+    'entries': [],      # List of history entries
+    'current_index': 0, # Current position in history
+    'global_mode': False # Whether viewing global history or key-specific history
+}
+
+def read_timestamp(entry):
+    """Read the timestamp of an entry."""
+    if not entry or 'datetime' not in entry:
+        speak("No timestamp available")
+        return
+    
+    # Format the date for better readability
+    date_str = entry['datetime'].split('.')[0]  # Remove milliseconds
+    
+    # Speak the timestamp
+    speak(f"Created on {date_str}")
+
+
 def read(key):
     """Read data from tome to clipboard."""
     global mode
     global key_presses
     global last_retrieved
     global current_register
+    global history_state
     
     try:
         c = key.char
@@ -214,11 +252,44 @@ def read(key):
                     webbrowser.open(url)
                     speak(f"Opening in browser")
                     exit()
+                
+                # Control-t: read timestamp of the last accessed value
+                elif key.char == 't':
+                    # Get the full entry to access timestamp
+                    result = retrieve(last_retrieved['key'], register=last_retrieved['register'])
+                    if result:
+                        read_timestamp(result)
+                    return
             
             # Operations that require a last retrieved key (even if value is None)
             if last_retrieved['key']:
+                # Control-h: view history for the last accessed key
+                if key.char == 'h':
+                    # Get history entries for this key
+                    history_entries = retrieve(last_retrieved['key'], register=last_retrieved['register'], fetch='history')
+                    
+                    if not history_entries or len(history_entries) <= 1:
+                        speak(f"No history for key {last_retrieved['key']}")
+                        return
+                    
+                    # Update history state
+                    history_state['active'] = True
+                    history_state['key'] = last_retrieved['key']
+                    history_state['register'] = last_retrieved['register']
+                    history_state['entries'] = history_entries
+                    history_state['current_index'] = 0  # Start with most recent entry (index 0)
+                    history_state['global_mode'] = False  # This is key-specific history, not global
+                    
+                    # Display the current (most recent) entry
+                    current_entry = history_entries[0]
+                    speak(f"History for {last_retrieved['key']}, {len(history_entries)} entries. Most recent: {current_entry['value']}")
+                    
+                    # Switch to history mode
+                    change_mode('history')
+                    return
+                
                 # Control-y: save clipboard to the last accessed register
-                if key.char == 'y':
+                elif key.char == 'y':
                     # Get clipboard data
                     data = str(paste())
                     if strip_input:
@@ -346,6 +417,253 @@ def read(key):
         pass
 
 
+def history(key):
+    """Navigate through history entries."""
+    global history_state
+    global mode
+    global last_retrieved
+    
+    try:
+        if key.char:
+            # Control key combinations
+            if pressed['ctrl']:
+                # Control-p: Previous entry (older)
+                if key.char == 'p':
+                    navigate_history('previous')
+                    return
+                    
+                # Control-n: Next entry (newer)
+                elif key.char == 'n':
+                    navigate_history('next')
+                    return
+                    
+                # Control-z: Restore the currently selected history entry
+                elif key.char == 'z':  # Changed from 'r' to 'z' to avoid conflict
+                    restore_history_entry()
+                    return
+                    
+                # Control-t: Read timestamp of current history entry
+                elif key.char == 't' and history_state['entries']:
+                    current_entry = history_state['entries'][history_state['current_index']]
+                    read_timestamp(current_entry)
+                    return
+                    
+                # Control-c: Copy current history entry to clipboard
+                elif key.char == 'c' and history_state['entries']:
+                    current_entry = history_state['entries'][history_state['current_index']]
+                    copy(current_entry['value'])
+                    speak(f"Copied to clipboard")
+                    return
+                    
+                # Control-b: Browse URL in current history entry
+                elif key.char == 'b' and history_state['entries']:
+                    current_entry = history_state['entries'][history_state['current_index']]
+                    value = current_entry['value']
+                    
+                    # Check if value is a URL
+                    if not is_valid_url(value):
+                        # If it's just a domain without protocol, add http://
+                        if re.match(r'^[a-zA-Z0-9][-a-zA-Z0-9.]*\.[a-zA-Z]{2,}(?:\/.*)?$', value):
+                            url = "http://" + value
+                            speak(f"Adding http protocol")
+                        else:
+                            speak("Not a valid URL")
+                            return
+                    else:
+                        url = value
+                        
+                    # Open URL in browser
+                    webbrowser.open(url)
+                    speak(f"Opening in browser")
+                    exit()
+                    
+                # Control-j: Read clipboard content
+                elif key.char == 'j':
+                    read_clipboard()
+                    return
+            else:
+                # If any other key with character is pressed, exit history mode
+                history_state['active'] = False
+                history_state['global_mode'] = False
+                change_mode('read')
+                return
+                
+    except AttributeError:
+        # Handle special keys
+        if key == keyboard.Key.up:  # Up arrow key for older entries
+            navigate_history('previous')
+            return
+            
+        elif key == keyboard.Key.down:  # Down arrow key for newer entries
+            navigate_history('next')
+            return
+            
+        elif key == keyboard.Key.delete:  # Delete key to permanently remove an entry
+            delete_history_entry()
+            return
+            
+        elif key == keyboard.Key.esc:  # Escape key to exit history mode
+            history_state['active'] = False
+            history_state['global_mode'] = False
+            change_mode('read')
+            return
+            
+        # Other special keys are ignored
+        if key not in [keyboard.Key.shift, keyboard.Key.ctrl, keyboard.Key.alt]:
+            return
+
+
+def navigate_history(direction):
+    """Navigate through history entries."""
+    global history_state
+    
+    entries = history_state['entries']
+    current_index = history_state['current_index']
+    global_mode = history_state['global_mode']
+    
+    if not entries:
+        speak("No history available")
+        return
+    
+    if direction == 'previous' and current_index < len(entries) - 1:
+        # Move to older entry (higher index)
+        current_index += 1
+    elif direction == 'next' and current_index > 0:
+        # Move to newer entry (lower index)
+        current_index -= 1
+    else:
+        if direction == 'previous':
+            speak("At oldest entry")
+        else:
+            speak("At newest entry")
+        return
+    
+    # Update the current index
+    history_state['current_index'] = current_index
+    
+    # Get the current entry
+    current_entry = entries[current_index]
+    total_entries = len(entries)
+    
+    # Format differently depending on whether we're in global or key-specific history
+    if global_mode:
+        speak(f"Entry {current_index + 1} of {total_entries}")
+        format_global_history_entry(current_entry)
+    else:
+        # Speak entry information and value (without timestamp) for key-specific history
+        speak(f"Entry {current_index + 1} of {total_entries}: {current_entry['value']}")
+
+
+def delete_history_entry():
+    """Delete the currently selected history entry."""
+    global history_state
+    
+    if not history_state['active'] or not history_state['entries']:
+        speak("No history entry to delete")
+        return
+    
+    # Get the current entry from history
+    current_index = history_state['current_index']
+    entries = history_state['entries']
+    global_mode = history_state['global_mode']
+    
+    if current_index >= len(entries):
+        speak("Invalid history entry")
+        return
+    
+    # Get the entry to delete
+    entry_to_delete = entries[current_index]
+    entry_id = entry_to_delete['id']
+    
+    # Delete the entry from the database
+    success = delete_entry(entry_id)
+    
+    if success:
+        if global_mode:
+            key = entry_to_delete['key']
+            register = entry_to_delete['register']
+            speak(f"Deleted entry from register {register}, key {key}: {entry_to_delete['value']}")
+        else:
+            speak(f"Deleted entry: {entry_to_delete['value']}")
+        
+        # Remove the entry from the entries list
+        entries.pop(current_index)
+        
+        # Update entries list
+        history_state['entries'] = entries
+        
+        # Check if we need to adjust the current index
+        if entries:
+            # If we've deleted the last entry in the list, move to the previous entry
+            if current_index >= len(entries):
+                history_state['current_index'] = len(entries) - 1
+                
+            # Speak the new current entry
+            new_current = entries[history_state['current_index']]
+            
+            if global_mode:
+                speak("Now at entry")
+                format_global_history_entry(new_current)
+            else:
+                speak(f"Now at entry: {new_current['value']}")
+        else:
+            # No more entries, exit history mode
+            speak("No more entries")
+            history_state['active'] = False
+            history_state['global_mode'] = False
+            change_mode('read')
+    else:
+        speak("Failed to delete entry")
+
+
+def restore_history_entry():
+    """Restore the currently selected history entry."""
+    global history_state
+    global last_retrieved
+    
+    if not history_state['active'] or not history_state['entries']:
+        speak("No history entry to restore")
+        return
+    
+    # Get the current entry from history
+    current_index = history_state['current_index']
+    entries = history_state['entries']
+    
+    if current_index >= len(entries):
+        speak("Invalid history entry")
+        return
+    
+    current_entry = entries[current_index]
+    
+    if history_state['global_mode']:
+        # Get the key and register from the entry itself for global history
+        key = current_entry['key']
+        register = current_entry['register']
+    else:
+        # Get the key and register from history state for key-specific history
+        key = history_state['key']
+        register = history_state['register']
+    
+    # Store the value from the history entry to create a new entry
+    value = current_entry['value']
+    store(key, value, register=register)
+    
+    if history_state['global_mode']:
+        speak(f"Restored to register {register}, key {key}: {value}")
+    else:
+        speak(f"Restored: {value}")
+    
+    # Exit history mode
+    history_state['active'] = False
+    history_state['global_mode'] = False
+    change_mode('read')
+    
+    # Update last_retrieved with the restored value
+    last_retrieved['value'] = value
+    last_retrieved['key'] = key
+    last_retrieved['register'] = register
+
+
 def options(key):
     global strip_input
 
@@ -357,9 +675,6 @@ def options(key):
 
     except AttributeError:
         pass
-
-
-# create_register function replaced by direct buffer creation in read mode with Control-g
 
 
 def read_clipboard():
@@ -505,6 +820,54 @@ def clipboard(key):
         pass
 
 
+def format_global_history_entry(entry):
+    """Format and speak a global history entry, including register and key information."""
+    key = entry['key']
+    register = entry['register']
+    value = entry['value']
+    
+    speak(f"Register {register}, key {key}: {value}")
+
+
+def access_global_history():
+    """Access the global history of all changes across all registers."""
+    global history_state
+    global mode
+    
+    # Only accessible from the main register
+    if current_register != 1:
+        speak("Global History only available from the main buffer")
+        return False
+    
+    # Get all history entries
+    connection, cursor = connect()
+    history_entries = get_global_history(connection, cursor)
+    
+    if not history_entries:
+        speak("No history entries available")
+        return False
+    
+    # Update history state
+    history_state['active'] = True
+    history_state['key'] = None
+    history_state['register'] = None
+    history_state['entries'] = history_entries
+    history_state['current_index'] = 0  # Start with most recent entry (index 0)
+    history_state['global_mode'] = True
+    
+    # Announce entering global history with count
+    speak(f"Global History: {len(history_entries)} entries")
+    
+    # Display the current (most recent) entry
+    current_entry = history_entries[0]
+    
+    # Format the entry differently for global history to include register and key
+    format_global_history_entry(current_entry)
+    
+    # Switch to history mode
+    change_mode('history')
+    return True
+
 
 mode_map = {
     "default": {
@@ -531,6 +894,10 @@ mode_map = {
         "function": browse,
         "message": "Browse URL",
     },
+    "history": {
+        "function": history,
+        "message": "Viewing history",
+    },
 }
 
 
@@ -551,10 +918,26 @@ def start():
     speak("Tome of lore")
 
     try:
-        with Listener(on_press=key_handler, on_release=release_handler, suppress=True) as listener:
-            listener.join()
-    except ConnectionClosedError:
-        pass
+        # Initialize the keyboard listener
+        listener = keyboard.Listener(
+            on_press=key_handler,
+            on_release=release_handler,
+            suppress=False
+        )
+        
+        # Ensure compatibility with different package managers
+        if not hasattr(listener, '_handle'):
+            def handle_method(self, display, event, injected):
+                return True
+            
+            from types import MethodType
+            listener._handle = MethodType(handle_method, listener)
+        
+        listener.start()
+        listener.join()
+    except (ConnectionClosedError, AttributeError) as e:
+        print(f"Error in keyboard listener: {e}")
+        speak("Error starting keyboard listener. Please check terminal.")
 
 
 def key_handler(key):
@@ -572,6 +955,11 @@ def key_handler(key):
         if key.char == "q":
             speak("Quit")
             exit()
+        
+        # Global history access (Control-h when no key is selected in main register)
+        if key.char == "h" and pressed['ctrl'] and mode == "read" and last_retrieved['key'] is None and current_register == 1:
+            if access_global_history():
+                return
         
         # All other keypresses are handled by the current mode's function
         mode_function(key)
