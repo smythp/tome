@@ -23,12 +23,15 @@ current_register = 1
 mode = "default"
 suppress_mode_message = False
 strip_input = True
+debug_mode = False  # Default debug setting, will be overridden by database
 register_stack = [1]  # Track register navigation hierarchy
 key_presses = {}  # Track key presses for read functionality
 
 # Get absolute paths for more reliable file access
 tome_directory = os.path.abspath(os.path.dirname(__file__))
 database = os.path.join(tome_directory, 'lore.db')
+
+# This initial print is always shown as it's needed to identify the database location
 print(f"Database path: {database}")
 
 
@@ -93,15 +96,82 @@ def speak(text_to_speak, speed=270, asynchronous=True):
 
 
 
-def connect():
+def debug_print(*args, **kwargs):
+    """Print only if debug_mode is enabled."""
+    global debug_mode
+    if debug_mode:
+        print(*args, **kwargs)
+
+
+def get_config(key, default=None):
+    """Get a configuration value from the database."""
+    try:
+        connection, cursor = connect(skip_debug=True)  # Avoid circular reference
+        
+        # Check if the config table exists
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='config'")
+        if not cursor.fetchone():
+            # If table doesn't exist, return default
+            return default
+            
+        # Get the config value
+        cursor.execute("SELECT value FROM config WHERE key = ?", (key,))
+        result = cursor.fetchone()
+        
+        if result:
+            return result['value']
+        return default
+    except Exception as e:
+        print(f"Error getting config {key}: {e}")
+        return default
+
+
+def set_config(key, value, description=None):
+    """Set a configuration value in the database."""
+    try:
+        connection, cursor = connect(skip_debug=True)  # Avoid circular reference
+        
+        # Check if the config table exists
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='config'")
+        if not cursor.fetchone():
+            # Create the config table if it doesn't exist
+            cursor.execute('''
+                CREATE TABLE config (
+                    key TEXT PRIMARY KEY,
+                    value TEXT,
+                    description TEXT
+                )
+            ''')
+            
+        # Get current description if available and none provided
+        if description is None:
+            cursor.execute("SELECT description FROM config WHERE key = ?", (key,))
+            result = cursor.fetchone()
+            if result:
+                description = result['description']
+        
+        # Insert or update the config value
+        cursor.execute('''
+            INSERT OR REPLACE INTO config (key, value, description)
+            VALUES (?, ?, ?)
+        ''', (key, value, description))
+        
+        connection.commit()
+        return True
+    except Exception as e:
+        print(f"Error setting config {key}: {e}")
+        return False
+
+
+def connect(skip_debug=False):
     """Connect to the database. Returns a tuple containing connection and cursor objects."""
     try:
-        # Print diagnostics about database access
-        print(f"Connecting to database: {database}")
-        print(f"Database exists: {os.path.exists(database)}")
-        print(f"Database directory exists: {os.path.exists(os.path.dirname(database))}")
-        print(f"Database permissions: {oct(os.stat(database).st_mode & 0o777) if os.path.exists(database) else 'N/A'}")
-        print(f"Current working directory: {os.getcwd()}")
+        if not skip_debug:  # Skip debug prints when called from get_config to avoid circular reference
+            debug_print(f"Connecting to database: {database}")
+            debug_print(f"Database exists: {os.path.exists(database)}")
+            debug_print(f"Database directory exists: {os.path.exists(os.path.dirname(database))}")
+            debug_print(f"Database permissions: {oct(os.stat(database).st_mode & 0o777) if os.path.exists(database) else 'N/A'}")
+            debug_print(f"Current working directory: {os.getcwd()}")
         
         # Ensure directory exists for the database
         db_dir = os.path.dirname(database)
@@ -137,7 +207,7 @@ def connect():
     except sqlite3.Error as e:
         # Provide a helpful error message with diagnostics
         error_msg = f"Database error: {e}"
-        print(error_msg)
+        print(error_msg)  # Always print errors
         print(f"SQLite version: {sqlite3.sqlite_version}")
         print(f"Python SQLite version: {sqlite3.version}")
         speak(error_msg)
@@ -152,10 +222,10 @@ def retrieve(key, register=current_register, fetch='last'):
         # Handle key object in a more robust way
         if hasattr(key, 'char'):  # Check for char attribute instead of isinstance
             key = key.char
-            print(f"Retrieved key.char: {key}")
+            debug_print(f"Retrieved key.char: {key}")
 
         # Print diagnostic information
-        print(f"Retrieving: key={key}, register={register}, fetch={fetch}")
+        debug_print(f"Retrieving: key={key}, register={register}, fetch={fetch}")
 
         if fetch == 'last_value':
             query = "SELECT value FROM lore WHERE register=? and key=?;"
@@ -168,25 +238,25 @@ def retrieve(key, register=current_register, fetch='last'):
             query = query[:-1] + " ORDER BY id DESC;"
 
         # Print the query and parameters for diagnostics
-        print(f"SQL Query: {query}")
-        print(f"Parameters: register={register}, key={str(key)}")
+        debug_print(f"SQL Query: {query}")
+        debug_print(f"Parameters: register={register}, key={str(key)}")
         
         results = cursor.execute(query, (register, str(key)))
 
         if not results:
-            print("No results returned from query")
+            debug_print("No results returned from query")
             return None
 
         if fetch == 'all' or fetch == 'history':
             results = results.fetchall()
-            print(f"Fetched {len(results)} records")
+            debug_print(f"Fetched {len(results)} records")
         else:
             results = results.fetchone()
-            print(f"Fetched record: {results}")
+            debug_print(f"Fetched record: {results}")
 
         return results
     except Exception as e:
-        print(f"Error in retrieve: {e}")
+        print(f"Error in retrieve: {e}")  # Always print errors
         speak(f"Error retrieving data: {e}")
         return None
 
@@ -723,14 +793,31 @@ def restore_history_entry():
 
 def options(key):
     global strip_input
+    global debug_mode
 
     try:
+        # Toggle strip input option
         if key.char == "s":
             strip_input = not strip_input
             speak(f"Strip input {status(strip_input)}")
-
+            
+        # Toggle debug mode option
+        elif key.char == "d":
+            debug_mode = not debug_mode
+            # Store the setting in the database for persistence
+            set_config('debug_mode', 'on' if debug_mode else 'off')
+            speak(f"Debug mode {status(debug_mode)}")
+            
+        # Return to read mode if escape is pressed
+        elif key.char == "\x1b":  # Escape character
+            change_mode('read')
+            return
 
     except AttributeError:
+        # Handle special keys
+        if key == keyboard.Key.esc:  # Escape key to exit options mode
+            change_mode('read')
+            return
         pass
 
 
@@ -801,9 +888,9 @@ def enter_register(key):
     try:
         # Print debug info about key
         if hasattr(key, 'char'):
-            print(f"Checking if key '{key.char}' is a register")
+            debug_print(f"Checking if key '{key.char}' is a register")
         else:
-            print(f"Checking if key '{key}' is a register")
+            debug_print(f"Checking if key '{key}' is a register")
             
         retrieved = retrieve(key, fetch='last')
 
@@ -826,7 +913,7 @@ def enter_register(key):
             return current_register
     except Exception as e:
         # Enhanced error handling
-        print(f"Error in enter_register: {e}")
+        print(f"Error in enter_register: {e}")  # Always print errors
         speak(f"Error checking register: {e}")
 
     return False
@@ -860,7 +947,7 @@ def exit_register():
 def clipboard(key):
     """Store data from clipboard."""
     global current_register
-    print(key)
+    debug_print(key)
 
     try:
 
@@ -871,7 +958,7 @@ def clipboard(key):
         if enter_register(key):
             return
 
-        print(current_register)
+        debug_print(current_register)
 
         if strip_input:
             data = data.strip()
@@ -884,7 +971,7 @@ def clipboard(key):
         return
         
     except AttributeError as e:
-        print(e)
+        print(f"Error in clipboard: {e}")  # Always print errors
         pass
 
 
@@ -948,7 +1035,7 @@ mode_map = {
     },
     "options": {
         "function": options,
-        "message": "Change options",
+        "message": "Options: Press s for strip input, d for debug mode",
     },
     "clipboard": {
         "function": clipboard,
@@ -974,9 +1061,15 @@ def start():
     """Start the tome."""
     global suppress_mode_message
     global buffer_path
+    global debug_mode
     
     # Initialize buffer path to empty list
     buffer_path = []
+    
+    # Load debug setting from database
+    debug_setting = get_config('debug_mode', 'off')
+    debug_mode = (debug_setting == 'on')
+    debug_print(f"Debug mode loaded from database: {debug_mode}")
     
     # Start in read mode - suppress the initial speak since we'll do it manually
     suppress_mode_message = True
@@ -990,7 +1083,7 @@ def start():
         listener = keyboard.Listener(
             on_press=key_handler,
             on_release=release_handler,
-            suppress=False
+            suppress=True
         )
         
         # Ensure compatibility with different package managers
@@ -1010,7 +1103,7 @@ def start():
 
 def key_handler(key):
     mode_function = mode_map[mode]['function']
-    print(mode)
+    debug_print(f"Current mode: {mode}")
 
     try:
         # Check for Control-Alt-v to kill all speech
@@ -1038,7 +1131,8 @@ def key_handler(key):
                 pressed[modifier] = True
 
         if key == keyboard.Key.esc:
-            change_mode('default')
+            # Return to read mode instead of default when escaping
+            change_mode('read')
         elif key == keyboard.Key.backspace:
             exit_register()
 
