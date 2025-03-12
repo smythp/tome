@@ -488,6 +488,9 @@ def read(key):
         enter = enter_register(key)
         if enter:
             # Stay in read mode when entering a register
+            # Don't use return_to_read_mode here as we've already announced the buffer name
+            global suppress_mode_message
+            suppress_mode_message = True  # Suppress default mode message
             change_mode('read')
             # Clear key presses when entering a new register
             key_presses = {}
@@ -612,7 +615,7 @@ def history(key):
                 # If any other key with character is pressed, exit history mode
                 history_state['active'] = False
                 history_state['global_mode'] = False
-                change_mode('read')
+                return_to_read_mode()
                 return
                 
     except AttributeError:
@@ -632,7 +635,7 @@ def history(key):
         elif key == keyboard.Key.esc:  # Escape key to exit history mode
             history_state['active'] = False
             history_state['global_mode'] = False
-            change_mode('read')
+            return_to_read_mode()
             return
             
         # Other special keys are ignored
@@ -738,7 +741,7 @@ def delete_history_entry():
             speak("No more entries")
             history_state['active'] = False
             history_state['global_mode'] = False
-            change_mode('read')
+            return_to_read_mode()
     else:
         speak("Failed to delete entry")
 
@@ -783,7 +786,7 @@ def restore_history_entry():
     # Exit history mode
     history_state['active'] = False
     history_state['global_mode'] = False
-    change_mode('read')
+    return_to_read_mode()
     
     # Update last_retrieved with the restored value
     last_retrieved['value'] = value
@@ -810,13 +813,13 @@ def options(key):
             
         # Return to read mode if escape is pressed
         elif key.char == "\x1b":  # Escape character
-            change_mode('read')
+            return_to_read_mode()
             return
 
     except AttributeError:
         # Handle special keys
         if key == keyboard.Key.esc:  # Escape key to exit options mode
-            change_mode('read')
+            return_to_read_mode()
             return
         pass
 
@@ -967,7 +970,7 @@ def clipboard(key):
         speak(f"Stored {data} as {c} in register {str(current_register)}")
         
         # Return to read mode after storing instead of exiting
-        change_mode('read')
+        return_to_read_mode()
         return
         
     except AttributeError as e:
@@ -1104,7 +1107,19 @@ def start():
 def key_handler(key):
     mode_function = mode_map[mode]['function']
     debug_print(f"Current mode: {mode}")
+    debug_print(f"Key pressed: {key}")
 
+    # Handle backspace special cases for non-read modes
+    if key == keyboard.Key.backspace:
+        if mode == 'options':
+            return_to_read_mode()
+            return
+        elif mode == 'history':
+            history_state['active'] = False
+            history_state['global_mode'] = False
+            return_to_read_mode()
+            return
+        
     try:
         # Check for Control-Alt-v to kill all speech
         if key.char == "v" and pressed['ctrl'] and pressed['alt']:
@@ -1125,15 +1140,17 @@ def key_handler(key):
         # All other keypresses are handled by the current mode's function
         mode_function(key)
     except AttributeError:
+        debug_print(f"AttributeError handling key: {key}")
         for modifier in ['shift', 'ctrl', 'alt']:
             key_attribute = getattr(keyboard.Key, modifier)
             if key == key_attribute:
                 pressed[modifier] = True
 
         if key == keyboard.Key.esc:
-            # Return to read mode instead of default when escaping
-            change_mode('read')
-        elif key == keyboard.Key.backspace:
+            # Return to read mode with buffer announcement when escaping
+            return_to_read_mode()
+        elif key == keyboard.Key.backspace and mode == 'read':
+            # Only exit register if in read mode
             exit_register()
 
 
@@ -1142,6 +1159,24 @@ def release_handler(key):
         key_attribute = getattr(keyboard.Key, modifier)
         if key == key_attribute:
             pressed[modifier] = False
+
+
+def get_buffer_name():
+    """Get the current buffer name from buffer path."""
+    if not buffer_path:
+        return "root"
+    return ''.join(buffer_path)
+
+
+def return_to_read_mode():
+    """Helper function to return to read mode with buffer name announcement."""
+    buffer_name = get_buffer_name()
+    # Temporarily suppress the default mode message
+    global suppress_mode_message
+    suppress_mode_message = True
+    change_mode('read')
+    # Speak custom buffer message instead
+    speak(f"Returning to buffer {buffer_name}")
 
 
 def change_mode(mode_name):
