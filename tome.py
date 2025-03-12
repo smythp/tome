@@ -26,8 +26,10 @@ strip_input = True
 register_stack = [1]  # Track register navigation hierarchy
 key_presses = {}  # Track key presses for read functionality
 
-tome_directory = os.path.dirname(__file__)
-database = '/'.join([tome_directory, 'lore.db'])
+# Get absolute paths for more reliable file access
+tome_directory = os.path.abspath(os.path.dirname(__file__))
+database = os.path.join(tome_directory, 'lore.db')
+print(f"Database path: {database}")
 
 
 pressed = {
@@ -93,45 +95,100 @@ def speak(text_to_speak, speed=270, asynchronous=True):
 
 def connect():
     """Connect to the database. Returns a tuple containing connection and cursor objects."""
+    try:
+        # Print diagnostics about database access
+        print(f"Connecting to database: {database}")
+        print(f"Database exists: {os.path.exists(database)}")
+        print(f"Database directory exists: {os.path.exists(os.path.dirname(database))}")
+        print(f"Database permissions: {oct(os.stat(database).st_mode & 0o777) if os.path.exists(database) else 'N/A'}")
+        print(f"Current working directory: {os.getcwd()}")
+        
+        # Ensure directory exists for the database
+        db_dir = os.path.dirname(database)
+        if not os.path.exists(db_dir):
+            os.makedirs(db_dir)
+            
+        # Use a timeout to handle potential locks and specify URI mode for better diagnostics
+        connection = sqlite3.connect(database, timeout=10)
+        connection.row_factory = dict_factory
 
-    connection = sqlite3.connect(database)
-    connection.row_factory = dict_factory
-
-    cursor = connection.cursor()
-
-    return connection, cursor
+        cursor = connection.cursor()
+        
+        # Check if the lore table exists, if not create it
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='lore'")
+        if not cursor.fetchone():
+            speak("Initializing database")
+            # Create the table
+            cursor.execute('''
+                CREATE TABLE lore (
+                    id INTEGER PRIMARY KEY,
+                    key TEXT,
+                    value TEXT,
+                    label TEXT,
+                    data_type TEXT,
+                    datetime TEXT,
+                    register INTEGER,
+                    parent_register INTEGER
+                )
+            ''')
+            connection.commit()
+            
+        return connection, cursor
+    except sqlite3.Error as e:
+        # Provide a helpful error message with diagnostics
+        error_msg = f"Database error: {e}"
+        print(error_msg)
+        print(f"SQLite version: {sqlite3.sqlite_version}")
+        print(f"Python SQLite version: {sqlite3.version}")
+        speak(error_msg)
+        raise
 
 
 def retrieve(key, register=current_register, fetch='last'):
     """Retrieve item from database."""
+    try:
+        connection, cursor = connect()
 
-    connection, cursor = connect()
+        # Handle key object in a more robust way
+        if hasattr(key, 'char'):  # Check for char attribute instead of isinstance
+            key = key.char
+            print(f"Retrieved key.char: {key}")
 
-    if isinstance(key, pynput.keyboard._xorg.KeyCode):
-        key = key.char
+        # Print diagnostic information
+        print(f"Retrieving: key={key}, register={register}, fetch={fetch}")
 
-    if fetch == 'last_value':
-        query = "SELECT value FROM lore WHERE register=? and key=?;"
-    else:
-        query = "SELECT * FROM lore WHERE register=? and key=?;"
+        if fetch == 'last_value':
+            query = "SELECT value FROM lore WHERE register=? and key=?;"
+        else:
+            query = "SELECT * FROM lore WHERE register=? and key=?;"
 
-    if fetch == 'last':
-        query = query[:-1] + " ORDER BY id DESC LIMIT 1;"
-    elif fetch == 'history':
-        query = query[:-1] + " ORDER BY id DESC;"
+        if fetch == 'last':
+            query = query[:-1] + " ORDER BY id DESC LIMIT 1;"
+        elif fetch == 'history':
+            query = query[:-1] + " ORDER BY id DESC;"
 
-    results = cursor.execute(query,
-                            (register, str(key)))
+        # Print the query and parameters for diagnostics
+        print(f"SQL Query: {query}")
+        print(f"Parameters: register={register}, key={str(key)}")
+        
+        results = cursor.execute(query, (register, str(key)))
 
-    if not results:
-        return
+        if not results:
+            print("No results returned from query")
+            return None
 
-    if fetch == 'all' or fetch == 'history':
-        results = results.fetchall()
-    else:
-        results = results.fetchone()  
+        if fetch == 'all' or fetch == 'history':
+            results = results.fetchall()
+            print(f"Fetched {len(results)} records")
+        else:
+            results = results.fetchone()
+            print(f"Fetched record: {results}")
 
-    return results
+        return results
+    except Exception as e:
+        print(f"Error in retrieve: {e}")
+        speak(f"Error retrieving data: {e}")
+        return None
 
 
 def store(key, value, label=None, data_type="key", register=None, parent_register=None):
@@ -741,25 +798,36 @@ def enter_register(key):
     global register_stack
     global buffer_path
 
-    retrieved = retrieve(key, fetch='last')
-
-    if retrieved and retrieved.get('data_type') and retrieved.get('data_type') == 'register':
-        new_register = retrieved['value']
-        
-        # Track the path to this buffer
-        if isinstance(key, pynput.keyboard._xorg.KeyCode):
-            buffer_path.append(key.char)
+    try:
+        # Print debug info about key
+        if hasattr(key, 'char'):
+            print(f"Checking if key '{key.char}' is a register")
         else:
-            buffer_path.append(str(key))
+            print(f"Checking if key '{key}' is a register")
             
-        # Create buffer name from path
-        buffer_name = ''.join(buffer_path)
-        
-        speak(f"Entering buffer {buffer_name}")
-        current_register = new_register
-        register_stack.append(current_register)  # Add to navigation stack
-        
-        return current_register
+        retrieved = retrieve(key, fetch='last')
+
+        if retrieved and retrieved.get('data_type') and retrieved.get('data_type') == 'register':
+            new_register = retrieved['value']
+            
+            # Track the path to this buffer
+            if hasattr(key, 'char'): # Check attr instead of isinstance for more reliable operation
+                buffer_path.append(key.char)
+            else:
+                buffer_path.append(str(key))
+                
+            # Create buffer name from path
+            buffer_name = ''.join(buffer_path)
+            
+            speak(f"Entering buffer {buffer_name}")
+            current_register = new_register
+            register_stack.append(current_register)  # Add to navigation stack
+            
+            return current_register
+    except Exception as e:
+        # Enhanced error handling
+        print(f"Error in enter_register: {e}")
+        speak(f"Error checking register: {e}")
 
     return False
 
