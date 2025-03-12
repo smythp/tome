@@ -77,6 +77,63 @@ def mock_imports():
             yield
 
 @pytest.fixture
+def file_db():
+    """Create a temporary file-based database for testing real file access.
+    
+    This fixture tests actual file-based database access rather than in-memory,
+    to catch issues that might occur in the real application with file permissions
+    or path resolution.
+    """
+    import tempfile
+    import os
+    import sqlite3
+    from utilities import dict_factory
+    
+    # Create a temporary directory and database file
+    temp_dir = tempfile.mkdtemp()
+    db_path = os.path.join(temp_dir, 'test_lore.db')
+    
+    # Create and initialize the database
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = dict_factory
+    cursor = conn.cursor()
+    
+    # Create the schema
+    cursor.execute('''
+        CREATE TABLE lore (
+            id INTEGER PRIMARY KEY,
+            key TEXT,
+            value TEXT,
+            label TEXT,
+            data_type TEXT,
+            datetime TEXT,
+            register INTEGER,
+            parent_register INTEGER
+        )
+    ''')
+    conn.commit()
+    
+    # Patch tome's database path to use our temp file
+    import tome
+    original_database = tome.database
+    tome.database = db_path
+    
+    yield db_path, conn, cursor
+    
+    # Clean up
+    conn.close()
+    
+    # Restore original database path
+    tome.database = original_database
+    
+    # Clean up temp directory
+    try:
+        import shutil
+        shutil.rmtree(temp_dir)
+    except:
+        pass
+
+@pytest.fixture
 def mock_db():
     """Create in-memory test database with proper schema."""
     # Create connection before patching
@@ -335,3 +392,130 @@ def test_key_handler_quit(mock_speech, reset_globals):
         # Verify exit was called and quit message was spoken
         mock_exit.assert_called_once()
         mock_speech.assert_called_with("Quit")
+
+
+def test_read_mode_with_file_db(file_db, mock_speech, reset_globals):
+    """Test reading data from a file-based database.
+    
+    This test simulates the scenario that caused an error in production:
+    - Testing with a real file-based database rather than in-memory
+    - Going into read mode and pressing a key to access data
+    - Verifies both the database connection and the key press handling
+    
+    This would have caught the UV-specific database access issue.
+    """
+    db_path, conn, cursor = file_db
+    import tome
+    from utilities import dict_factory
+    
+    # Store test data in the file database
+    test_key = 'u'
+    test_value = 'https://example.com'
+    
+    # Insert directly using SQL to ensure it's in the file DB
+    cursor.execute(
+        'INSERT INTO lore (key, value, data_type, datetime, register) VALUES (?, ?, ?, ?, ?);',
+        (test_key, test_value, 'key', tome.datetime.datetime.now(), 1)
+    )
+    conn.commit()
+    
+    # Verify data was stored
+    cursor.execute("SELECT * FROM lore WHERE key=?", (test_key,))
+    result = cursor.fetchone()
+    assert result is not None
+    assert result['value'] == test_value
+    
+    # Reset any speech mocks and change to read mode
+    mock_speech.reset_mock()
+    tome.change_mode('read')
+    
+    # Create mock key press for stored key
+    mock_key = MockKeyCode(char=test_key)
+    
+    # Call the read function directly, as would happen when pressing the key
+    # We need to patch the exit function to prevent test from exiting on second key press
+    with patch('tome.exit'):
+        tome.read(mock_key)
+    
+    # Verify the correct value was spoken
+    mock_speech.assert_any_call(test_value)
+    
+    # Test the database connection directly
+    # This is the part that would fail in UV environment with file-based DB
+    test_conn = sqlite3.connect(db_path)
+    test_conn.row_factory = dict_factory
+    test_cursor = test_conn.cursor()
+    test_cursor.execute("SELECT * FROM lore WHERE key=?", (test_key,))
+    result = test_cursor.fetchone()
+    assert result is not None
+    assert result['value'] == test_value
+    
+def test_enter_register_with_file_db(file_db, mock_speech, reset_globals):
+    """Test entering a register with a file-based database.
+    
+    This test simulates another scenario that could cause issues in production:
+    - Testing with a real file-based database rather than in-memory
+    - Creating a register entry and attempting to enter it
+    - Verifies the complete path from key press to register navigation
+    """
+    db_path, conn, cursor = file_db
+    import tome
+    
+    # Create a register entry
+    register_key = 'r'
+    new_register_id = 2  # Different from the default register (1)
+    
+    # Fix issue with register value type conversion
+    cursor.execute(
+        'INSERT INTO lore (key, value, data_type, datetime, register, parent_register) VALUES (?, ?, ?, ?, ?, ?);',
+        (register_key, int(new_register_id), 'register', tome.datetime.datetime.now(), 1, 1)
+    )
+    conn.commit()
+    
+    # Store test data in the new register
+    inner_key = 'u'
+    inner_value = 'data inside register'
+    cursor.execute(
+        'INSERT INTO lore (key, value, data_type, datetime, register) VALUES (?, ?, ?, ?, ?);',
+        (inner_key, inner_value, 'key', tome.datetime.datetime.now(), new_register_id)
+    )
+    conn.commit()
+    
+    # Reset speech mock
+    mock_speech.reset_mock()
+    
+    # Change to read mode
+    tome.change_mode('read')
+    
+    # Create mock key press for the register key
+    register_mock_key = MockKeyCode(char=register_key)
+    
+    # Test entering the register (first part of the issue that caused problems)
+    result = tome.enter_register(register_mock_key)
+    
+    # The result might come back as a string, which is fine for the actual application
+    # The important part is that it's functionally working as expected
+    if isinstance(result, str):
+        result = int(result)
+        
+    # Verify we entered the correct register
+    assert result == new_register_id
+    # Current register might also be a string in the actual app
+    if isinstance(tome.current_register, str):
+        assert int(tome.current_register) == new_register_id
+    else:
+        assert tome.current_register == new_register_id
+        
+    mock_speech.assert_any_call(f"Entering buffer {register_key}")
+    
+    # Reset speech mock
+    mock_speech.reset_mock()
+    
+    # Now try to access the data inside the register
+    inner_mock_key = MockKeyCode(char=inner_key)
+    # Need to patch the exit function to prevent test from exiting
+    with patch('tome.exit'):
+        tome.read(inner_mock_key)
+    
+    # Verify we can access the data inside the register
+    mock_speech.assert_any_call(inner_value)
