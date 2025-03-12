@@ -73,6 +73,16 @@ fi
 echo -e "\n${BLUE}Creating runner script...${NC}"
 RUNNER_PATH="${SCRIPT_DIR}/run_tome.sh"
 
+# Install pytest for testing
+echo -e "\n${BLUE}Installing pytest for testing...${NC}"
+if ! uv pip freeze | grep -q pytest; then
+  uv pip install pytest
+  echo -e "${GREEN}pytest installed successfully${NC}"
+else
+  echo -e "${GREEN}pytest already installed${NC}"
+fi
+
+# Create runner scripts
 cat > "$RUNNER_PATH" << EOF
 #!/usr/bin/env bash
 set -e
@@ -84,6 +94,24 @@ cd "\$SCRIPT_DIR"
 # Run the application using UV
 uv run tome.py
 EOF
+
+# Create test runner script
+TEST_RUNNER_PATH="${SCRIPT_DIR}/run_tests.sh"
+cat > "$TEST_RUNNER_PATH" << EOF
+#!/usr/bin/env bash
+set -e
+
+# Get the script directory
+SCRIPT_DIR="\$( cd "\$( dirname "\${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
+cd "\$SCRIPT_DIR"
+
+# Run tests using UV
+uv run -m pytest
+EOF
+
+chmod +x "$TEST_RUNNER_PATH"
+echo -e "${GREEN}Test runner script created at:${NC}"
+echo -e "${YELLOW}$TEST_RUNNER_PATH${NC}"
 
 chmod +x "$RUNNER_PATH"
 echo -e "${GREEN}Runner script created at:${NC}"
