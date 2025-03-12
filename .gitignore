@@ -8,3 +8,7 @@ __pycache__/
 test.py
 notes.py
 reset.sh
+run_tome.sh
+.venv/
+.env
+.pytest_cache/
