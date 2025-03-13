@@ -1574,19 +1574,19 @@ def list_mode(key):
     if isinstance(key, keyboard.Key):
         if key == keyboard.Key.up:
             # Up arrow: Move up (toward item 1)
-            navigate_list('prev')
+            navigate_list('next')
             return True
         elif key == keyboard.Key.down:
             # Down arrow: Move down (toward higher numbers) 
-            navigate_list('next')
+            navigate_list('prev')
             return True
         elif key == keyboard.Key.left:
             # Left arrow: Move up (toward item 1)
-            navigate_list('prev')
+            navigate_list('next')
             return True
         elif key == keyboard.Key.right:
             # Right arrow: Move down (toward higher numbers)
-            navigate_list('next')
+            navigate_list('prev')
             return True
         elif key == keyboard.Key.backspace:
             # Exit list mode
