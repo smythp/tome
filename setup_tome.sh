@@ -69,10 +69,6 @@ else
   echo -e "${YELLOW}$DB_PATH${NC}"
 fi
 
-# Create a runner script
-echo -e "\n${BLUE}Creating runner script...${NC}"
-RUNNER_PATH="${SCRIPT_DIR}/run_tome.sh"
-
 # Install pytest for testing
 echo -e "\n${BLUE}Installing pytest for testing...${NC}"
 if ! uv pip freeze | grep -q pytest; then
