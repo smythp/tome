@@ -1572,12 +1572,20 @@ def list_mode(key):
     
     # Handle special keys
     if isinstance(key, keyboard.Key):
-        if key == keyboard.Key.up or key == keyboard.Key.left:
-            # Up arrow: Move up the list (toward item 1)
+        if key == keyboard.Key.up:
+            # Up arrow: Move up (toward item 1)
             navigate_list('prev')
             return True
-        elif key == keyboard.Key.down or key == keyboard.Key.right:
-            # Down arrow: Move down the list (toward higher numbers)
+        elif key == keyboard.Key.down:
+            # Down arrow: Move down (toward higher numbers) 
+            navigate_list('next')
+            return True
+        elif key == keyboard.Key.left:
+            # Left arrow: Move up (toward item 1)
+            navigate_list('prev')
+            return True
+        elif key == keyboard.Key.right:
+            # Right arrow: Move down (toward higher numbers)
             navigate_list('next')
             return True
         elif key == keyboard.Key.backspace:
@@ -1606,12 +1614,14 @@ def list_mode(key):
         
         # Check for Control key combinations first
         if pressed['ctrl']:
+            # In Emacs, Control+n means "next line" (down)
             if char == 'n':
-                # Control+n: Next item (down the list)
+                # Move down (away from item 1)
                 navigate_list('next')
                 return True
+            # In Emacs, Control+p means "previous line" (up)
             elif char == 'p':
-                # Control+p: Previous item (up the list)
+                # Move up (toward item 1)
                 navigate_list('prev')
                 return True
             
