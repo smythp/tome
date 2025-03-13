@@ -1617,12 +1617,12 @@ def list_mode(key):
             # In Emacs, Control+n means "next line" (down)
             if char == 'n':
                 # Move down (away from item 1)
-                navigate_list('next')
+                navigate_list('prev')
                 return True
             # In Emacs, Control+p means "previous line" (up)
             elif char == 'p':
                 # Move up (toward item 1)
-                navigate_list('prev')
+                navigate_list('next')
                 return True
             
         # Regular character keys
@@ -1645,11 +1645,11 @@ def list_mode(key):
             return True
         elif char == 'n' or char == 'j':
             # Next item (down the list)
-            navigate_list('next')
+            navigate_list('prev')
             return True
         elif char == 'p' or char == 'k':
             # Previous item (up the list)
-            navigate_list('prev')
+            navigate_list('next')
             return True
         elif char == '.':
             # Jump to end of list (highest number)
