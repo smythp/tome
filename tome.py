@@ -1371,7 +1371,7 @@ def start():
         listener = keyboard.Listener(
             on_press=key_handler,
             on_release=release_handler,
-            suppress=True
+            suppress=False
         )
         
         # Ensure compatibility with different package managers
@@ -1441,8 +1441,16 @@ def key_handler(key):
         elif key == keyboard.Key.backspace and mode == 'read':
             # Only exit buffer if in read mode
             exit_buffer()
-
-
+        # whitelist special keys to pass through to the mode
+        if any([
+                key.up,
+                key.down,
+                key.left,
+                key.right,
+                key.delete]
+                ):
+            mode_function(key)
+            
 def release_handler(key):
     for modifier in ['shift', 'ctrl', 'alt']:
         key_attribute = getattr(keyboard.Key, modifier)
@@ -1491,7 +1499,7 @@ def change_mode(mode_name):
 
 def enter_list_mode(key, buffer_id=None):
     """Enter list mode for a specific key.
-    
+
     Args:
         key: The key of the list to enter
         buffer_id: The buffer ID containing the list (uses current_buffer_id if None)
@@ -1563,6 +1571,7 @@ def list_mode(key):
     Returns:
         True if the key was handled, False otherwise
     """
+
     global list_state
     
     if not list_state['active']:
@@ -1572,6 +1581,7 @@ def list_mode(key):
     
     # Handle special keys with direct comparison
     if isinstance(key, keyboard.Key):
+
         # Add debugging to see the key value
         debug_print(f"Special key in list mode: {key}")
         
@@ -1594,9 +1604,9 @@ def list_mode(key):
         if key == keyboard.Key.right:
             navigate_list('prev')
             return True
-        
         # Backspace handling
         if key == keyboard.Key.backspace:
+
             # Exit list mode
             list_state['active'] = False
             return_to_read_mode()
@@ -1678,7 +1688,7 @@ def list_mode(key):
         
     except AttributeError:
         # Key doesn't have a char attribute
-        pass
+        print('special')
     
     return False
 
