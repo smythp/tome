@@ -18,14 +18,29 @@ import datetime
 from pyperclip import copy, paste
 from utilities import dict_factory, get_global_history
 
+# Terminology:
+# - Register: Any key-value pair where a key stores some data (e.g., 'a' → "hello world")
+# - Buffer: A special type of container that holds its own set of registers
+#   When you enter a buffer, you get a clean namespace with a new set of key-value pairs
+# - current_buffer_id: The ID of the buffer we're currently in
+# - buffer_stack: Navigation history of buffers (for backspace navigation)
+# - buffer_path: Path of keys used to navigate to current buffer (for display purposes)
 
-current_register = 1
-mode = "default"
+# Data type constants
+TYPE_VALUE = "value"  # Normal key-value pair
+TYPE_BUFFER = "buffer"  # Nested buffer container
+
+# Buffer-related state
+current_buffer_id = 1  # ID of the buffer we're currently in (1 is the root buffer)
+buffer_stack = [1]     # Stack of buffer IDs for navigation (for tracking the path back to root)
+buffer_path = []       # Path of keys used to navigate to current buffer (for display purposes)
+
+# Application state
+mode = "default"     # Current mode (read, clipboard, options, etc.)
 suppress_mode_message = False
 strip_input = True
-debug_mode = False  # Default debug setting, will be overridden by database
-register_stack = [1]  # Track register navigation hierarchy
-key_presses = {}  # Track key presses for read functionality
+debug_mode = False   # Debug mode toggle (overridden by database setting)
+key_presses = {}     # Track key presses for read functionality
 
 # Get absolute paths for more reliable file access
 tome_directory = os.path.abspath(os.path.dirname(__file__))
@@ -49,26 +64,67 @@ def bp():
 
 
 
-def max_register():
-    """Find the highest created register integer."""
+def max_buffer_id():
+    """Find the highest created buffer ID."""
 
     connection, cursor = connect()
 
-    query = "SELECT register from lore;"
+    query = "SELECT buffer_id from lore;"
     results = cursor.execute(query)
     results = results.fetchall()
 
-    results = [result['register'] for result in results if result['register']]
+    results = [result['buffer_id'] for result in results if result['buffer_id']]
 
     if not results:
-        return 0  # Return 0 if no registers exist yet
+        return 0  # Return 0 if no buffers exist yet
     
-    highest_register = max(results)
-    return highest_register
+    highest_buffer_id = max(results)
+    return highest_buffer_id
 
 
-def new_register_index():
-    return max_register() + 1
+def new_buffer_id():
+    """Create a new unique buffer ID."""
+    return max_buffer_id() + 1
+
+
+def is_key_a_buffer(key, parent_buffer_id=None):
+    """Check if a key contains a buffer in the specified parent buffer.
+    
+    Args:
+        key: The key to check
+        parent_buffer_id: The parent buffer ID to check in (uses current_buffer_id if None)
+        
+    Returns:
+        True if the key contains a buffer, False otherwise
+    """
+    if parent_buffer_id is None:
+        parent_buffer_id = current_buffer_id
+        
+    result = retrieve(key, buffer_id=parent_buffer_id, fetch='last')
+    return result and result.get('data_type') == TYPE_BUFFER and result.get('parent_buffer_id') == parent_buffer_id
+
+
+def create_buffer_at_key(key, parent_buffer_id=None):
+    """Create a new buffer at the specified key.
+    
+    Args:
+        key: The key where the buffer should be created
+        parent_buffer_id: The parent buffer ID (uses current_buffer_id if None)
+        
+    Returns:
+        The new buffer ID
+    """
+    if parent_buffer_id is None:
+        parent_buffer_id = current_buffer_id
+        
+    # Create a new buffer ID
+    buffer_id = new_buffer_id()
+    
+    # Store the buffer with parent reference
+    store(key, buffer_id, label='buffer', data_type=TYPE_BUFFER, 
+          buffer_id=parent_buffer_id, parent_buffer_id=parent_buffer_id)
+    
+    return buffer_id
 
 
 def status(boolean):
@@ -214,9 +270,24 @@ def connect(skip_debug=False):
         raise
 
 
-def retrieve(key, register=current_register, fetch='last'):
-    """Retrieve item from database."""
+def retrieve(key, buffer_id=None, fetch='last'):
+    """Retrieve item from database.
+    
+    Args:
+        key: The key to retrieve
+        buffer_id: The buffer ID to retrieve from (uses current_buffer_id if None)
+        fetch: How to fetch - 'last' for most recent entry, 'history' for all entries, 
+               'all' for all entries, 'last_value' for just the value
+               
+    Returns:
+        The retrieved entry or entries, or None if not found
+    """
+    global current_buffer_id
+    
     try:
+        if buffer_id is None:
+            buffer_id = current_buffer_id
+            
         connection, cursor = connect()
 
         # Handle key object in a more robust way
@@ -225,12 +296,12 @@ def retrieve(key, register=current_register, fetch='last'):
             debug_print(f"Retrieved key.char: {key}")
 
         # Print diagnostic information
-        debug_print(f"Retrieving: key={key}, register={register}, fetch={fetch}")
+        debug_print(f"Retrieving: key={key}, buffer_id={buffer_id}, fetch={fetch}")
 
         if fetch == 'last_value':
-            query = "SELECT value FROM lore WHERE register=? and key=?;"
+            query = "SELECT value FROM lore WHERE buffer_id=? and key=?;"
         else:
-            query = "SELECT * FROM lore WHERE register=? and key=?;"
+            query = "SELECT * FROM lore WHERE buffer_id=? and key=?;"
 
         if fetch == 'last':
             query = query[:-1] + " ORDER BY id DESC LIMIT 1;"
@@ -239,9 +310,9 @@ def retrieve(key, register=current_register, fetch='last'):
 
         # Print the query and parameters for diagnostics
         debug_print(f"SQL Query: {query}")
-        debug_print(f"Parameters: register={register}, key={str(key)}")
+        debug_print(f"Parameters: buffer_id={buffer_id}, key={str(key)}")
         
-        results = cursor.execute(query, (register, str(key)))
+        results = cursor.execute(query, (buffer_id, str(key)))
 
         if not results:
             debug_print("No results returned from query")
@@ -261,27 +332,32 @@ def retrieve(key, register=current_register, fetch='last'):
         return None
 
 
-def store(key, value, label=None, data_type="key", register=None, parent_register=None):
-    global current_register
-
-    if not register:
-        register = current_register
+def store(key, value, label=None, data_type=TYPE_VALUE, buffer_id=None, parent_buffer_id=None):
+    """Store a key-value pair in the database.
     
-    if parent_register is None and data_type == "register":
-        parent_register = current_register
+    Args:
+        key: The key to store the value under
+        value: The value to store
+        label: Optional label for the value
+        data_type: Type of data - TYPE_VALUE for normal values, TYPE_BUFFER for nested buffers
+        buffer_id: The buffer ID to store in (uses current_buffer_id if None)
+        parent_buffer_id: For buffers, the parent buffer ID. For normal values, should be None.
+    """
+    global current_buffer_id
+
+    if buffer_id is None:
+        buffer_id = current_buffer_id
+    
+    # If creating a buffer and no parent specified, use current buffer as parent
+    if parent_buffer_id is None and data_type == TYPE_BUFFER:
+        parent_buffer_id = current_buffer_id
 
     connection, cursor = connect()
 
-    if data_type == "register":
-        cursor.execute(
-            'INSERT INTO lore (data_type, value, label, key, datetime, register, parent_register) VALUES (?, ?, ?, ?, ?, ?, ?);',
-            (data_type, value, label, key, datetime.datetime.now(), register, parent_register)
-            )
-    else:
-        cursor.execute(
-            'INSERT INTO lore (data_type, value, label, key, datetime, register, parent_register) VALUES (?, ?, ?, ?, ?, ?, ?);',
-            (data_type, value, label, key, datetime.datetime.now(), register, None)
-            )
+    cursor.execute(
+        'INSERT INTO lore (data_type, value, label, key, datetime, buffer_id, parent_buffer_id) VALUES (?, ?, ?, ?, ?, ?, ?);',
+        (data_type, value, label, key, datetime.datetime.now(), buffer_id, parent_buffer_id)
+    )
     connection.commit()
 
 
@@ -312,14 +388,14 @@ buffer_path = []
 last_retrieved = {
     'value': None,      # Last retrieved value
     'key': None,        # Key that was pressed
-    'register': None    # Register from which value was retrieved
+    'buffer_id': None   # Buffer ID from which value was retrieved
 }
 
 # History tracking
 history_state = {
     'active': False,    # Whether history mode is active
     'key': None,        # Key for which history is being viewed
-    'register': None,   # Register in which the key exists
+    'buffer_id': None,  # Buffer ID in which the key exists
     'entries': [],      # List of history entries
     'current_index': 0, # Current position in history
     'global_mode': False # Whether viewing global history or key-specific history
@@ -339,17 +415,17 @@ def read_timestamp(entry):
 
 
 def read(key):
-    """Read data from tome to clipboard."""
+    """Read data from a key in the current buffer."""
     global mode
     global key_presses
     global last_retrieved
-    global current_register
+    global current_buffer_id
     global history_state
     
     try:
         c = key.char
         # Create a key ID for the current key
-        current_key_id = f"{current_register}:{c}"
+        current_key_id = f"{current_buffer_id}:{c}"
         
         # Check if this is a Control key press for operating on the last read value
         if pressed['ctrl']:
@@ -383,7 +459,7 @@ def read(key):
                 # Control-t: read timestamp of the last accessed value
                 elif key.char == 't':
                     # Get the full entry to access timestamp
-                    result = retrieve(last_retrieved['key'], register=last_retrieved['register'])
+                    result = retrieve(last_retrieved['key'], buffer_id=last_retrieved['buffer_id'])
                     if result:
                         read_timestamp(result)
                     return
@@ -393,7 +469,7 @@ def read(key):
                 # Control-h: view history for the last accessed key
                 if key.char == 'h':
                     # Get history entries for this key
-                    history_entries = retrieve(last_retrieved['key'], register=last_retrieved['register'], fetch='history')
+                    history_entries = retrieve(last_retrieved['key'], buffer_id=last_retrieved['buffer_id'], fetch='history')
                     
                     if not history_entries or len(history_entries) <= 1:
                         speak(f"No history for key {last_retrieved['key']}")
@@ -402,7 +478,7 @@ def read(key):
                     # Update history state
                     history_state['active'] = True
                     history_state['key'] = last_retrieved['key']
-                    history_state['register'] = last_retrieved['register']
+                    history_state['buffer_id'] = last_retrieved['buffer_id']
                     history_state['entries'] = history_entries
                     history_state['current_index'] = 0  # Start with most recent entry (index 0)
                     history_state['global_mode'] = False  # This is key-specific history, not global
@@ -428,47 +504,50 @@ def read(key):
                         is_overwrite = True
                     
                     # Store to the last key we interacted with
-                    store(last_retrieved['key'], data, register=last_retrieved['register'])
+                    store(last_retrieved['key'], data, buffer_id=last_retrieved['buffer_id'])
                     
                     if is_overwrite:
-                        speak(f"Overwrote register {last_retrieved['key']} with clipboard data")
+                        speak(f"Overwrote key {last_retrieved['key']} with clipboard data")
                     else:
-                        speak(f"Wrote clipboard data to register {last_retrieved['key']}")
+                        speak(f"Wrote clipboard data to key {last_retrieved['key']}")
                     return
                     
                 # Control-g: create a buffer at the last accessed key
                 elif key.char == 'g':
                     if last_retrieved['key'] is not None:
-                        # Check if a buffer already exists at this key
-                        existing_register = retrieve(last_retrieved['key'], register=last_retrieved['register'])
-                        if existing_register and existing_register.get('data_type') == 'register':
-                            # If a buffer already exists, just enter it
-                            buffer_key = last_retrieved['key']
-                            # Reset buffer path (this is for direct creation, not navigation)
-                            buffer_path.append(buffer_key)
-                            buffer_name = ''.join(buffer_path)
-                            speak(f"Buffer already exists at {buffer_key}")
-                            enter_register(buffer_key)
-                            return
-                            
-                        # Create a new register/buffer
-                        new_buffer_id = new_register_index()
+                        buffer_key = last_retrieved['key']
+                        parent_buffer_id = last_retrieved['buffer_id']
                         
-                        # Current path plus the new key
-                        new_key = last_retrieved['key']
-                        buffer_path.append(new_key)
+                        # Check if a buffer already exists at this key in the current buffer context
+                        if is_key_a_buffer(buffer_key, parent_buffer_id):
+                            # If a buffer already exists, just enter it
+                            speak(f"Buffer already exists at {buffer_key}")
+                            
+                            # Create a KeyCode-like object to pass to enter_buffer
+                            class KeyObj:
+                                def __init__(self, char):
+                                    self.char = char
+                                    
+                            key_obj = KeyObj(buffer_key)
+                            enter_buffer(key_obj)
+                            return
+                        
+                        # Create a new buffer
+                        new_buffer_id = create_buffer_at_key(buffer_key, parent_buffer_id)
+                        
+                        # Add to buffer path for display
+                        buffer_path.append(buffer_key)
                         buffer_name = ''.join(buffer_path)
                         
-                        # Store buffer with parent reference
-                        store(new_key, new_buffer_id, label='buffer', data_type="register", 
-                              register=last_retrieved['register'], parent_register=last_retrieved['register'])
                         speak(f"Created buffer {buffer_name}")
                         
                         # Enter the new buffer
-                        current_register = new_buffer_id
-                        register_stack.append(current_register)
+                        current_buffer_id = new_buffer_id
+                        buffer_stack.append(current_buffer_id)
                         
                         return
+                    else:
+                        speak("Select a key first before creating a buffer")
                     return
             
             # Operations that don't require a last retrieved value or key
@@ -484,27 +563,27 @@ def read(key):
                 
             return
         
-        # Check if we're dealing with a register key
-        enter = enter_register(key)
+        # Check if we're dealing with a buffer key
+        enter = enter_buffer(key)
         if enter:
-            # Stay in read mode when entering a register
+            # Stay in read mode when entering a buffer
             # Don't use return_to_read_mode here as we've already announced the buffer name
             global suppress_mode_message
             suppress_mode_message = True  # Suppress default mode message
             change_mode('read')
-            # Clear key presses when entering a new register
+            # Clear key presses when entering a new buffer
             key_presses = {}
             # Reset last retrieved info
-            last_retrieved = {'value': None, 'key': None, 'register': None}
+            last_retrieved = {'value': None, 'key': None, 'buffer_id': None}
             return
             
         # Get the data for this key
-        result = retrieve(key, register=current_register)
+        result = retrieve(key, buffer_id=current_buffer_id)
         
         # Always update the last retrieved key information, even for empty registers
         # This allows writing to empty registers with Control-y
         last_retrieved['key'] = c
-        last_retrieved['register'] = current_register
+        last_retrieved['buffer_id'] = current_buffer_id
         
         # Check if we're switching to a different key than the last one pressed
         # If so, reset all key press counters to prevent copy-on-second behavior 
@@ -512,9 +591,9 @@ def read(key):
         last_key_pressed = None
         for existing_key_id in list(key_presses.keys()):
             if key_presses[existing_key_id] > 0:
-                reg, k = existing_key_id.split(':')
-                # If this key is in the current register and is not the current key
-                if reg == str(current_register) and k != c:
+                buf, k = existing_key_id.split(':')
+                # If this key is in the current buffer and is not the current key
+                if buf == str(current_buffer_id) and k != c:
                     # We've found a different key that was pressed before
                     # Clear all key press counts since we're switching keys
                     key_presses = {key_id: 0 for key_id in key_presses}
@@ -711,8 +790,8 @@ def delete_history_entry():
     if success:
         if global_mode:
             key = entry_to_delete['key']
-            register = entry_to_delete['register']
-            speak(f"Deleted entry from register {register}, key {key}: {entry_to_delete['value']}")
+            buffer_id = entry_to_delete['buffer_id']
+            speak(f"Deleted entry from buffer {buffer_id}, key {key}: {entry_to_delete['value']}")
         else:
             speak(f"Deleted entry: {entry_to_delete['value']}")
         
@@ -882,26 +961,39 @@ def is_valid_url(url):
     return re.match(regex, url) is not None
 
 
-def enter_register(key):
-    """Check if the selected key is a register and enter that buffer if true."""
-    global current_register
-    global register_stack
+def enter_buffer(key):
+    """Check if the selected key contains a buffer in the current buffer, and enter it if true.
+    
+    A buffer is only accessible if it was explicitly created in the current buffer.
+    This prevents buffer "leaking" where a buffer created in one parent is accessible from another.
+    
+    Args:
+        key: The key that might contain a buffer
+        
+    Returns:
+        The new buffer ID if successfully entered, False otherwise
+    """
+    global current_buffer_id
+    global buffer_stack
     global buffer_path
 
     try:
         # Print debug info about key
         if hasattr(key, 'char'):
-            debug_print(f"Checking if key '{key.char}' is a register")
+            debug_print(f"Checking if key '{key.char}' contains a buffer in current buffer {current_buffer_id}")
         else:
-            debug_print(f"Checking if key '{key}' is a register")
-            
-        retrieved = retrieve(key, fetch='last')
-
-        if retrieved and retrieved.get('data_type') and retrieved.get('data_type') == 'register':
-            new_register = retrieved['value']
+            debug_print(f"Checking if key '{key}' contains a buffer in current buffer {current_buffer_id}")
+        
+        # Check if this key contains a buffer in the current buffer
+        # This is the critical check to fix buffer nesting - we need to ensure the buffer's parent
+        # matches our current buffer exactly, not just any buffer with this key
+        if is_key_a_buffer(key, current_buffer_id):
+            # Get the buffer data
+            retrieved = retrieve(key, buffer_id=current_buffer_id, fetch='last')
+            new_buffer_id = retrieved['value']
             
             # Track the path to this buffer
-            if hasattr(key, 'char'): # Check attr instead of isinstance for more reliable operation
+            if hasattr(key, 'char'):
                 buffer_path.append(key.char)
             else:
                 buffer_path.append(str(key))
@@ -910,27 +1002,35 @@ def enter_register(key):
             buffer_name = ''.join(buffer_path)
             
             speak(f"Entering buffer {buffer_name}")
-            current_register = new_register
-            register_stack.append(current_register)  # Add to navigation stack
+            current_buffer_id = new_buffer_id
+            buffer_stack.append(current_buffer_id)  # Add to navigation stack
             
-            return current_register
+            return current_buffer_id
+        else:
+            # Key either doesn't exist or doesn't contain a buffer in the current context
+            return False
+            
     except Exception as e:
         # Enhanced error handling
-        print(f"Error in enter_register: {e}")  # Always print errors
-        speak(f"Error checking register: {e}")
+        print(f"Error in enter_buffer: {e}")  # Always print errors
+        speak(f"Error checking for buffer: {e}")
 
     return False
 
 
-def exit_register():
-    """Exit current buffer and return to parent buffer."""
-    global current_register
-    global register_stack
+def exit_buffer():
+    """Exit current buffer and return to parent buffer.
+    
+    Returns:
+        True if successfully exited a buffer, False if already at root buffer
+    """
+    global current_buffer_id
+    global buffer_stack
     global buffer_path
     
-    if len(register_stack) > 1:
-        register_stack.pop()  # Remove current register
-        current_register = register_stack[-1]  # Set current to parent
+    if len(buffer_stack) > 1:
+        buffer_stack.pop()  # Remove current buffer from stack
+        current_buffer_id = buffer_stack[-1]  # Set current to parent buffer
         
         # Update buffer path
         if buffer_path:
@@ -948,26 +1048,26 @@ def exit_register():
 
 
 def clipboard(key):
-    """Store data from clipboard."""
-    global current_register
+    """Store data from clipboard into the currently selected key."""
+    global current_buffer_id
     debug_print(key)
 
     try:
-
         c = key.char
         data = str(paste())
-
         
-        if enter_register(key):
+        # Check if key contains a buffer and enter it if so
+        if enter_buffer(key):
             return
 
-        debug_print(current_register)
+        debug_print(f"Current buffer ID: {current_buffer_id}")
 
         if strip_input:
             data = data.strip()
 
+        # Store the clipboard data at this key in the current buffer
         store(c, data)
-        speak(f"Stored {data} as {c} in register {str(current_register)}")
+        speak(f"Stored {data} as {c} in buffer {get_buffer_name()}")
         
         # Return to read mode after storing instead of exiting
         return_to_read_mode()
@@ -979,22 +1079,22 @@ def clipboard(key):
 
 
 def format_global_history_entry(entry):
-    """Format and speak a global history entry, including register and key information."""
+    """Format and speak a global history entry, including buffer and key information."""
     key = entry['key']
-    register = entry['register']
+    buffer_id = entry['buffer_id']
     value = entry['value']
     
-    speak(f"Register {register}, key {key}: {value}")
+    speak(f"Buffer {buffer_id}, key {key}: {value}")
 
 
 def access_global_history():
-    """Access the global history of all changes across all registers."""
+    """Access the global history of all changes across all buffers."""
     global history_state
     global mode
     
-    # Only accessible from the main register
-    if current_register != 1:
-        speak("Global History only available from the main buffer")
+    # Only accessible from the root buffer
+    if current_buffer_id != 1:
+        speak("Global History only available from the root buffer")
         return False
     
     # Get all history entries
@@ -1008,7 +1108,7 @@ def access_global_history():
     # Update history state
     history_state['active'] = True
     history_state['key'] = None
-    history_state['register'] = None
+    history_state['buffer_id'] = None
     history_state['entries'] = history_entries
     history_state['current_index'] = 0  # Start with most recent entry (index 0)
     history_state['global_mode'] = True
@@ -1019,7 +1119,7 @@ def access_global_history():
     # Display the current (most recent) entry
     current_entry = history_entries[0]
     
-    # Format the entry differently for global history to include register and key
+    # Format the entry differently for global history to include buffer and key
     format_global_history_entry(current_entry)
     
     # Switch to history mode
@@ -1065,9 +1165,13 @@ def start():
     global suppress_mode_message
     global buffer_path
     global debug_mode
+    global current_buffer_id
+    global buffer_stack
     
-    # Initialize buffer path to empty list
-    buffer_path = []
+    # Initialize buffer-related state
+    current_buffer_id = 1  # Start in the root buffer
+    buffer_stack = [1]     # Initialize navigation stack with root buffer
+    buffer_path = []       # Empty buffer path (we're at root)
     
     # Load debug setting from database
     debug_setting = get_config('debug_mode', 'off')
@@ -1132,8 +1236,8 @@ def key_handler(key):
             speak("Quit")
             exit()
         
-        # Global history access (Control-h when no key is selected in main register)
-        if key.char == "h" and pressed['ctrl'] and mode == "read" and last_retrieved['key'] is None and current_register == 1:
+        # Global history access (Control-h when no key is selected in root buffer)
+        if key.char == "h" and pressed['ctrl'] and mode == "read" and last_retrieved['key'] is None and current_buffer_id == 1:
             if access_global_history():
                 return
         
@@ -1150,8 +1254,8 @@ def key_handler(key):
             # Return to read mode with buffer announcement when escaping
             return_to_read_mode()
         elif key == keyboard.Key.backspace and mode == 'read':
-            # Only exit register if in read mode
-            exit_register()
+            # Only exit buffer if in read mode
+            exit_buffer()
 
 
 def release_handler(key):

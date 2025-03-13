@@ -17,7 +17,8 @@ def get_global_history(connection, cursor, limit=None):
     Returns:
         List of entries sorted by datetime (newest first)
     """
-    query = "SELECT * FROM lore ORDER BY datetime DESC"
+    # Exclude the root buffer record itself (id=1) as it's not a real entry
+    query = "SELECT * FROM lore WHERE id != 1 ORDER BY datetime DESC"
     
     if limit:
         query += f" LIMIT {limit}"

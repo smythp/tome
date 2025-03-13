@@ -107,8 +107,8 @@ def file_db():
             label TEXT,
             data_type TEXT,
             datetime TEXT,
-            register INTEGER,
-            parent_register INTEGER
+            buffer_id INTEGER,
+            parent_buffer_id INTEGER
         )
     ''')
     conn.commit()
@@ -200,10 +200,10 @@ def reset_globals():
     # Save original values
     original_values = {
         'mode': tome.mode,
-        'current_register': tome.current_register,
+        'current_buffer_id': tome.current_buffer_id,
         'suppress_mode_message': tome.suppress_mode_message,
         'strip_input': tome.strip_input,
-        'register_stack': tome.register_stack.copy(),
+        'buffer_stack': tome.buffer_stack.copy(),
         'buffer_path': tome.buffer_path.copy(),
         'pressed': tome.pressed.copy(),
         'key_presses': tome.key_presses.copy(),
@@ -213,10 +213,10 @@ def reset_globals():
     
     # Reset to default for testing
     tome.mode = "default"
-    tome.current_register = 1
+    tome.current_buffer_id = 1
     tome.suppress_mode_message = False
     tome.strip_input = True
-    tome.register_stack = [1]
+    tome.buffer_stack = [1]
     tome.buffer_path = []
     tome.pressed = {
         'shift': False,
@@ -227,12 +227,12 @@ def reset_globals():
     tome.last_retrieved = {
         'value': None,
         'key': None,
-        'register': None
+        'buffer_id': None
     }
     tome.history_state = {
         'active': False,
         'key': None,
-        'register': None,
+        'buffer_id': None,
         'entries': [],
         'current_index': 0,
         'global_mode': False
@@ -242,10 +242,10 @@ def reset_globals():
     
     # Restore original values
     tome.mode = original_values['mode']
-    tome.current_register = original_values['current_register']
+    tome.current_buffer_id = original_values['current_buffer_id']
     tome.suppress_mode_message = original_values['suppress_mode_message']
     tome.strip_input = original_values['strip_input']
-    tome.register_stack = original_values['register_stack'].copy()
+    tome.buffer_stack = original_values['buffer_stack'].copy()
     tome.buffer_path = original_values['buffer_path'].copy()
     tome.pressed = original_values['pressed'].copy()
     tome.key_presses = original_values['key_presses'].copy()
@@ -284,13 +284,13 @@ def test_store_and_retrieve(mock_db, reset_globals):
     tome.store(test_key, test_value)
     
     # Retrieve the value
-    result = tome.retrieve(test_key, register=tome.current_register)
+    result = tome.retrieve(test_key, buffer_id=tome.current_buffer_id)
     
     # Verify the retrieved value matches what was stored
     assert result['value'] == test_value
     assert result['key'] == test_key
-    assert result['data_type'] == 'key'
-    assert result['register'] == tome.current_register
+    assert result['data_type'] == tome.TYPE_VALUE
+    assert result['buffer_id'] == tome.current_buffer_id
 
 
 def test_clipboard_mode(mock_db, mock_speech, mock_clipboard, reset_globals):
@@ -308,13 +308,13 @@ def test_clipboard_mode(mock_db, mock_speech, mock_clipboard, reset_globals):
     tome.clipboard(mock_key)
     
     # Verify something was stored under key 'a'
-    result = tome.retrieve('a', register=tome.current_register)
+    result = tome.retrieve('a', buffer_id=tome.current_buffer_id)
     
     assert result is not None
     assert result['value'] == "test clipboard data"
     
     # Verify appropriate speech was triggered
-    expected_speech = f"Stored test clipboard data as a in register {tome.current_register}"
+    expected_speech = f"Stored test clipboard data as a in buffer {tome.get_buffer_name()}"
     mock_speech.assert_any_call(expected_speech)
 
 
@@ -414,8 +414,8 @@ def test_read_mode_with_file_db(file_db, mock_speech, reset_globals):
     
     # Insert directly using SQL to ensure it's in the file DB
     cursor.execute(
-        'INSERT INTO lore (key, value, data_type, datetime, register) VALUES (?, ?, ?, ?, ?);',
-        (test_key, test_value, 'key', tome.datetime.datetime.now(), 1)
+        'INSERT INTO lore (key, value, data_type, datetime, buffer_id) VALUES (?, ?, ?, ?, ?);',
+        (test_key, test_value, tome.TYPE_VALUE, tome.datetime.datetime.now(), 1)
     )
     conn.commit()
     
@@ -450,34 +450,34 @@ def test_read_mode_with_file_db(file_db, mock_speech, reset_globals):
     assert result is not None
     assert result['value'] == test_value
     
-def test_enter_register_with_file_db(file_db, mock_speech, reset_globals):
-    """Test entering a register with a file-based database.
+def test_enter_buffer_with_file_db(file_db, mock_speech, reset_globals):
+    """Test entering a buffer with a file-based database.
     
     This test simulates another scenario that could cause issues in production:
     - Testing with a real file-based database rather than in-memory
-    - Creating a register entry and attempting to enter it
-    - Verifies the complete path from key press to register navigation
+    - Creating a buffer entry and attempting to enter it
+    - Verifies the complete path from key press to buffer navigation
     """
     db_path, conn, cursor = file_db
     import tome
     
-    # Create a register entry
-    register_key = 'r'
-    new_register_id = 2  # Different from the default register (1)
+    # Create a buffer entry
+    buffer_key = 'r'
+    new_buffer_id = 2  # Different from the default buffer (1)
     
-    # Fix issue with register value type conversion
+    # Insert a buffer record
     cursor.execute(
-        'INSERT INTO lore (key, value, data_type, datetime, register, parent_register) VALUES (?, ?, ?, ?, ?, ?);',
-        (register_key, int(new_register_id), 'register', tome.datetime.datetime.now(), 1, 1)
+        'INSERT INTO lore (key, value, data_type, datetime, buffer_id, parent_buffer_id) VALUES (?, ?, ?, ?, ?, ?);',
+        (buffer_key, int(new_buffer_id), tome.TYPE_BUFFER, tome.datetime.datetime.now(), 1, 1)
     )
     conn.commit()
     
-    # Store test data in the new register
+    # Store test data in the new buffer
     inner_key = 'u'
-    inner_value = 'data inside register'
+    inner_value = 'data inside buffer'
     cursor.execute(
-        'INSERT INTO lore (key, value, data_type, datetime, register) VALUES (?, ?, ?, ?, ?);',
-        (inner_key, inner_value, 'key', tome.datetime.datetime.now(), new_register_id)
+        'INSERT INTO lore (key, value, data_type, datetime, buffer_id) VALUES (?, ?, ?, ?, ?);',
+        (inner_key, inner_value, tome.TYPE_VALUE, tome.datetime.datetime.now(), new_buffer_id)
     )
     conn.commit()
     
@@ -487,35 +487,36 @@ def test_enter_register_with_file_db(file_db, mock_speech, reset_globals):
     # Change to read mode
     tome.change_mode('read')
     
-    # Create mock key press for the register key
-    register_mock_key = MockKeyCode(char=register_key)
+    # Create mock key press for the buffer key
+    buffer_mock_key = MockKeyCode(char=buffer_key)
     
-    # Test entering the register (first part of the issue that caused problems)
-    result = tome.enter_register(register_mock_key)
+    # Test entering the buffer
+    result = tome.enter_buffer(buffer_mock_key)
     
     # The result might come back as a string, which is fine for the actual application
     # The important part is that it's functionally working as expected
     if isinstance(result, str):
         result = int(result)
         
-    # Verify we entered the correct register
-    assert result == new_register_id
-    # Current register might also be a string in the actual app
-    if isinstance(tome.current_register, str):
-        assert int(tome.current_register) == new_register_id
+    # Verify we entered the correct buffer
+    assert result == new_buffer_id
+    
+    # Current buffer ID might also be a string in the actual app
+    if isinstance(tome.current_buffer_id, str):
+        assert int(tome.current_buffer_id) == new_buffer_id
     else:
-        assert tome.current_register == new_register_id
+        assert tome.current_buffer_id == new_buffer_id
         
-    mock_speech.assert_any_call(f"Entering buffer {register_key}")
+    mock_speech.assert_any_call(f"Entering buffer {buffer_key}")
     
     # Reset speech mock
     mock_speech.reset_mock()
     
-    # Now try to access the data inside the register
+    # Now try to access the data inside the buffer
     inner_mock_key = MockKeyCode(char=inner_key)
     # Need to patch the exit function to prevent test from exiting
     with patch('tome.exit'):
         tome.read(inner_mock_key)
     
-    # Verify we can access the data inside the register
+    # Verify we can access the data inside the buffer
     mock_speech.assert_any_call(inner_value)
