@@ -500,6 +500,34 @@ def append_to_list(list_id, value):
     store(None, value, data_type=TYPE_VALUE, parent_id=list_id, item_index=next_index)
     return next_index
 
+def user_index(internal_index, items_list):
+    """Convert internal zero-based index to user-facing one-based index (newest = 1).
+    
+    Args:
+        internal_index: The internal zero-based index
+        items_list: The list of items
+        
+    Returns:
+        The user-facing one-based index (newest item = 1)
+    """
+    if not items_list:
+        return 0
+    return len(items_list) - internal_index
+    
+def internal_index(user_index, items_list):
+    """Convert user-facing one-based index to internal zero-based index.
+    
+    Args:
+        user_index: The user-facing one-based index (newest item = 1)
+        items_list: The list of items
+        
+    Returns:
+        The internal zero-based index
+    """
+    if not items_list:
+        return 0
+    return len(items_list) - user_index
+
 def navigate_list(direction):
     """Navigate through list entries.
     
@@ -525,29 +553,38 @@ def navigate_list(direction):
         current_index = list_state['current_index']
         
     if direction == 'next' and current_index < len(items) - 1:
-        # Move to next item (toward end)
+        # Move to next/older item (down the list)
         list_state['current_index'] += 1
         current_item = items[list_state['current_index']]
-        speak(f"Item {list_state['current_index'] + 1} of {len(items)}: {current_item['value']}")
+        user_idx = user_index(list_state['current_index'], items)
+        speak(f"Item {user_idx} of {len(items)}: {current_item['value']}")
         return True
     elif direction == 'prev' and current_index > 0:
-        # Move to previous item (toward beginning)
+        # Move to previous/newer item (up the list)
         list_state['current_index'] -= 1
         current_item = items[list_state['current_index']]
-        speak(f"Item {list_state['current_index'] + 1} of {len(items)}: {current_item['value']}")
+        user_idx = user_index(list_state['current_index'], items)
+        speak(f"Item {user_idx} of {len(items)}: {current_item['value']}")
         return True
     elif direction == 'end':
-        # Jump to end of list
+        # Jump to end of list (oldest item)
+        list_state['current_index'] = 0
+        current_item = items[list_state['current_index']]
+        user_idx = user_index(list_state['current_index'], items)
+        speak(f"Oldest item {user_idx} of {len(items)}: {current_item['value']}")
+        return True
+    elif direction == 'top':
+        # Jump to top of list (newest item)
         list_state['current_index'] = len(items) - 1
         current_item = items[list_state['current_index']]
-        speak(f"End item {len(items)} of {len(items)}: {current_item['value']}")
+        speak(f"Newest item 1 of {len(items)}: {current_item['value']}")
         return True
     else:
         # Cannot navigate further
         if direction == 'next':
-            speak("End of list")
+            speak("End of list (oldest item)")
         else:
-            speak("Beginning of list")
+            speak("Top of list (newest item)")
         return False
 
 def read_timestamp(entry):
@@ -775,10 +812,10 @@ def read(key):
             # Get list items
             items = get_list_items(result['id'])
             
-            # First press - announce list info and read the last item
+            # First press - announce list info and read the newest item (item 1)
             if key_presses[current_key_id] == 1:
                 if items:
-                    speak(f"List with {len(items)} items. Last item: {items[-1]['value']}")
+                    speak(f"List with {len(items)} items. Item 1: {items[-1]['value']}")
                 else:
                     speak(f"Empty list at key {c}")
             # Second consecutive press - enter list mode
@@ -1482,7 +1519,7 @@ def enter_list_mode(key, buffer_id=None):
         # Convert existing value to a list
         list_id = create_list(key, buffer_id)
         items = get_list_items(list_id)
-        speak(f"Converted to list with {len(items)} item")
+        speak(f"Converted to list with 1 item")
     elif entry['data_type'] == TYPE_LIST:
         # Already a list
         list_id = entry['id']
@@ -1503,13 +1540,13 @@ def enter_list_mode(key, buffer_id=None):
     list_state['buffer_id'] = buffer_id
     list_state['items'] = items
     
-    # Start at the end of the list (most recently added item)
+    # Start at the end of the list (most recently added item = item 1)
     last_index = len(items) - 1 if items else 0
     list_state['current_index'] = last_index
     
-    # If the list has items, announce the last item
+    # If the list has items, announce the newest item as item 1
     if items:
-        speak(f"Item {last_index + 1} of {len(items)}: {items[last_index]['value']}")
+        speak(f"Item 1 of {len(items)}: {items[last_index]['value']}")
     else:
         speak("Empty list")
     
@@ -1536,11 +1573,11 @@ def list_mode(key):
     # Handle special keys
     if isinstance(key, keyboard.Key):
         if key == keyboard.Key.up or key == keyboard.Key.left:
-            # Navigate to previous item
+            # Up arrow: Move to newer items (up the list)
             navigate_list('prev')
             return True
         elif key == keyboard.Key.down or key == keyboard.Key.right:
-            # Navigate to next item
+            # Down arrow: Move to older items (down the list)
             navigate_list('next')
             return True
         elif key == keyboard.Key.backspace:
@@ -1552,7 +1589,8 @@ def list_mode(key):
             # Read current item
             if list_state['items'] and 0 <= list_state['current_index'] < len(list_state['items']):
                 current_item = list_state['items'][list_state['current_index']]
-                speak(f"Item {list_state['current_index'] + 1} of {len(list_state['items'])}: {current_item['value']}")
+                user_idx = user_index(list_state['current_index'], list_state['items'])
+                speak(f"Item {user_idx} of {len(list_state['items'])}: {current_item['value']}")
             else:
                 speak("List is empty")
             return True
@@ -1569,11 +1607,11 @@ def list_mode(key):
         # Check for Control key combinations first
         if pressed['ctrl']:
             if char == 'n':
-                # Control+n: Next item (toward end)
+                # Control+n: Next item (down, to older items)
                 navigate_list('next')
                 return True
             elif char == 'p':
-                # Control+p: Previous item (toward beginning)
+                # Control+p: Previous item (up, to newer items)
                 navigate_list('prev')
                 return True
             
@@ -1582,34 +1620,38 @@ def list_mode(key):
             # Append clipboard content to end of list
             clipboard_content = paste()
             if clipboard_content:
-                # Add item to end of list
-                index = append_to_list(list_state['list_id'], clipboard_content)
+                # Add item to end of list (which becomes the new item 1)
+                append_to_list(list_state['list_id'], clipboard_content)
                 
                 # Update list items in state
                 list_state['items'] = get_list_items(list_state['list_id'])
                 
-                # Move to the new item (which is at the end)
+                # Move to the new item (which is at the end = item 1)
                 list_state['current_index'] = len(list_state['items']) - 1
                 
-                speak(f"Appended item {index + 1}: {clipboard_content}")
+                speak(f"Added new item 1: {clipboard_content}")
             else:
                 speak("Clipboard is empty")
             return True
         elif char == 'n' or char == 'j':
-            # Next item (toward end)
+            # Next item (older items, down the list)
             navigate_list('next')
             return True
         elif char == 'p' or char == 'k':
-            # Previous item (toward beginning)
+            # Previous item (newer items, up the list)
             navigate_list('prev')
             return True
         elif char == '.':
-            # Jump to end
+            # Jump to oldest item
             navigate_list('end')
+            return True
+        elif char == ',':
+            # Jump to newest item (top)
+            navigate_list('top')
             return True
         elif char == '?':
             # Help
-            speak("List mode commands: a to append, n or j or Control-n for next, p or k or Control-p for previous, period to jump to end, backspace to exit")
+            speak("List mode commands: a to add new item at top, n or j or Control-n for older items, p or k or Control-p for newer items, period to jump to oldest item, comma to jump to newest item, backspace to exit")
             return True
         
     except AttributeError:
