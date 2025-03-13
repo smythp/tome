@@ -553,38 +553,38 @@ def navigate_list(direction):
         current_index = list_state['current_index']
         
     if direction == 'next' and current_index < len(items) - 1:
-        # Move to next/older item (down the list)
+        # Move to next (down the list toward higher numbers)
         list_state['current_index'] += 1
         current_item = items[list_state['current_index']]
         user_idx = user_index(list_state['current_index'], items)
         speak(f"Item {user_idx} of {len(items)}: {current_item['value']}")
         return True
     elif direction == 'prev' and current_index > 0:
-        # Move to previous/newer item (up the list)
+        # Move to previous (up the list toward item 1)
         list_state['current_index'] -= 1
         current_item = items[list_state['current_index']]
         user_idx = user_index(list_state['current_index'], items)
         speak(f"Item {user_idx} of {len(items)}: {current_item['value']}")
         return True
     elif direction == 'end':
-        # Jump to end of list (oldest item)
+        # Jump to end of list
         list_state['current_index'] = 0
         current_item = items[list_state['current_index']]
         user_idx = user_index(list_state['current_index'], items)
-        speak(f"Oldest item {user_idx} of {len(items)}: {current_item['value']}")
+        speak(f"Last item {user_idx} of {len(items)}: {current_item['value']}")
         return True
     elif direction == 'top':
-        # Jump to top of list (newest item)
+        # Jump to top of list
         list_state['current_index'] = len(items) - 1
         current_item = items[list_state['current_index']]
-        speak(f"Newest item 1 of {len(items)}: {current_item['value']}")
+        speak(f"First item 1 of {len(items)}: {current_item['value']}")
         return True
     else:
         # Cannot navigate further
         if direction == 'next':
-            speak("End of list (oldest item)")
+            speak("End of list")
         else:
-            speak("Top of list (newest item)")
+            speak("Beginning of list")
         return False
 
 def read_timestamp(entry):
@@ -1573,11 +1573,11 @@ def list_mode(key):
     # Handle special keys
     if isinstance(key, keyboard.Key):
         if key == keyboard.Key.up or key == keyboard.Key.left:
-            # Up arrow: Move to newer items (up the list)
+            # Up arrow: Move up the list (toward item 1)
             navigate_list('prev')
             return True
         elif key == keyboard.Key.down or key == keyboard.Key.right:
-            # Down arrow: Move to older items (down the list)
+            # Down arrow: Move down the list (toward higher numbers)
             navigate_list('next')
             return True
         elif key == keyboard.Key.backspace:
@@ -1607,11 +1607,11 @@ def list_mode(key):
         # Check for Control key combinations first
         if pressed['ctrl']:
             if char == 'n':
-                # Control+n: Next item (down, to older items)
+                # Control+n: Next item (down the list)
                 navigate_list('next')
                 return True
             elif char == 'p':
-                # Control+p: Previous item (up, to newer items)
+                # Control+p: Previous item (up the list)
                 navigate_list('prev')
                 return True
             
@@ -1634,24 +1634,24 @@ def list_mode(key):
                 speak("Clipboard is empty")
             return True
         elif char == 'n' or char == 'j':
-            # Next item (older items, down the list)
+            # Next item (down the list)
             navigate_list('next')
             return True
         elif char == 'p' or char == 'k':
-            # Previous item (newer items, up the list)
+            # Previous item (up the list)
             navigate_list('prev')
             return True
         elif char == '.':
-            # Jump to oldest item
+            # Jump to end of list (highest number)
             navigate_list('end')
             return True
         elif char == ',':
-            # Jump to newest item (top)
+            # Jump to top of list (item 1)
             navigate_list('top')
             return True
         elif char == '?':
             # Help
-            speak("List mode commands: a to add new item at top, n or j or Control-n for older items, p or k or Control-p for newer items, period to jump to oldest item, comma to jump to newest item, backspace to exit")
+            speak("List mode commands: a to add new item at top, n or j or Control-n for next (down), p or k or Control-p for previous (up), period to jump to last item, comma to jump to first item, backspace to exit")
             return True
         
     except AttributeError:
