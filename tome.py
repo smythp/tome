@@ -1570,34 +1570,40 @@ def list_mode(key):
         return_to_read_mode()
         return True
     
-    # Handle special keys with equality string comparisons
+    # Handle special keys with direct comparison
     if isinstance(key, keyboard.Key):
-        # Convert key to string for easier comparison
-        key_str = str(key)
-        debug_print(f"Special key in list mode: {key_str}")
+        # Add debugging to see the key value
+        debug_print(f"Special key in list mode: {key}")
         
-        if 'up' in key_str.lower():
-            # Up arrow: move up toward item 1
+        # Up arrow - move up toward item 1
+        if key == keyboard.Key.up:
             navigate_list('next')
             return True
-        elif 'down' in key_str.lower():
-            # Down arrow: move down toward higher numbers
+            
+        # Down arrow - move down toward higher numbers
+        if key == keyboard.Key.down:
             navigate_list('prev')
             return True
-        elif 'left' in key_str.lower():
-            # Left arrow: same as up
+            
+        # Left arrow - same as up
+        if key == keyboard.Key.left:
             navigate_list('next')
             return True
-        elif 'right' in key_str.lower():
-            # Right arrow: same as down
+            
+        # Right arrow - same as down
+        if key == keyboard.Key.right:
             navigate_list('prev')
             return True
-        elif key == keyboard.Key.backspace:
+        
+        # Backspace handling
+        if key == keyboard.Key.backspace:
             # Exit list mode
             list_state['active'] = False
             return_to_read_mode()
             return True
-        elif key == keyboard.Key.enter:
+            
+        # Enter key handling
+        if key == keyboard.Key.enter:
             # Read current item
             if list_state['items'] and 0 <= list_state['current_index'] < len(list_state['items']):
                 current_item = list_state['items'][list_state['current_index']]
@@ -1606,7 +1612,9 @@ def list_mode(key):
             else:
                 speak("List is empty")
             return True
-        elif key == keyboard.Key.delete:
+            
+        # Delete key handling
+        if key == keyboard.Key.delete:
             # Not implementing delete in this first pass
             speak("Delete not implemented yet")
             return True
