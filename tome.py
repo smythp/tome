@@ -680,24 +680,15 @@ def read(key):
                 
                 # Control-y: save clipboard to the last accessed register
                 elif key.char == 'y':
-                    # Get clipboard data
                     data = str(paste())
                     if strip_input:
                         data = data.strip()
-                    
-                    # Check if we're overwriting
-                    is_overwrite = False
-                    if last_retrieved['value'] is not None:
-                        is_overwrite = True
-                    
+
                     # Store to the last key we interacted with
                     store(last_retrieved['key'], data, buffer_id=last_retrieved['buffer_id'])
-                    
-                    if is_overwrite:
-                        speak(f"Overwrote key {last_retrieved['key']} with clipboard data")
-                    else:
-                        speak(f"Wrote clipboard data to key {last_retrieved['key']}")
-                    return
+
+                    speak(f"Wrote {last_retrieved['key']} with clipboard data")
+                    exit()
                     
                 # Control-g: create a buffer at the last accessed key
                 elif key.char == 'g':
@@ -1279,13 +1270,10 @@ def clipboard(key):
         # Store the clipboard data at this key in the current buffer
         store(c, data)
         speak(f"Stored {data} as {c} in buffer {get_buffer_name()}")
-        
-        # Return to read mode after storing instead of exiting
-        return_to_read_mode()
-        return
-        
+
+
     except AttributeError as e:
-        print(f"Error in clipboard: {e}")  # Always print errors
+        print(f"Error in clipboard: {e}")  
         pass
 
 
