@@ -29,6 +29,7 @@ from utilities import dict_factory, get_global_history
 # Data type constants
 TYPE_VALUE = "value"  # Normal key-value pair
 TYPE_BUFFER = "buffer"  # Nested buffer container
+TYPE_LIST = "list"  # List container for multiple values
 
 # Buffer-related state
 current_buffer_id = 1  # ID of the buffer we're currently in (1 is the root buffer)
@@ -270,14 +271,15 @@ def connect(skip_debug=False):
         raise
 
 
-def retrieve(key, buffer_id=None, fetch='last'):
+def retrieve(key, buffer_id=None, fetch='last', parent_id=None):
     """Retrieve item from database.
     
     Args:
         key: The key to retrieve
         buffer_id: The buffer ID to retrieve from (uses current_buffer_id if None)
         fetch: How to fetch - 'last' for most recent entry, 'history' for all entries, 
-               'all' for all entries, 'last_value' for just the value
+               'all' for all entries, 'last_value' for just the value, 'list_items' for items in a list
+        parent_id: For 'list_items' fetch, the ID of the parent list to retrieve items from
                
     Returns:
         The retrieved entry or entries, or None if not found
@@ -296,9 +298,16 @@ def retrieve(key, buffer_id=None, fetch='last'):
             debug_print(f"Retrieved key.char: {key}")
 
         # Print diagnostic information
-        debug_print(f"Retrieving: key={key}, buffer_id={buffer_id}, fetch={fetch}")
+        debug_print(f"Retrieving: key={key}, buffer_id={buffer_id}, fetch={fetch}, parent_id={parent_id}")
 
-        if fetch == 'last_value':
+        if fetch == 'list_items' and parent_id is not None:
+            # Special query for list items, ordered by item_index
+            query = "SELECT * FROM lore WHERE parent_id=? ORDER BY item_index ASC;"
+            results = cursor.execute(query, (parent_id,))
+            results = results.fetchall()
+            debug_print(f"Fetched {len(results) if results else 0} list items")
+            return results
+        elif fetch == 'last_value':
             query = "SELECT value FROM lore WHERE buffer_id=? and key=?;"
         else:
             query = "SELECT * FROM lore WHERE buffer_id=? and key=?;"
@@ -332,16 +341,17 @@ def retrieve(key, buffer_id=None, fetch='last'):
         return None
 
 
-def store(key, value, label=None, data_type=TYPE_VALUE, buffer_id=None, parent_buffer_id=None):
+def store(key, value, label=None, data_type=TYPE_VALUE, buffer_id=None, parent_id=None, item_index=None):
     """Store a key-value pair in the database.
     
     Args:
         key: The key to store the value under
         value: The value to store
         label: Optional label for the value
-        data_type: Type of data - TYPE_VALUE for normal values, TYPE_BUFFER for nested buffers
+        data_type: Type of data - TYPE_VALUE for normal values, TYPE_BUFFER for nested buffers, TYPE_LIST for lists
         buffer_id: The buffer ID to store in (uses current_buffer_id if None)
-        parent_buffer_id: For buffers, the parent buffer ID. For normal values, should be None.
+        parent_id: The ID of the parent (buffer or list) this entry belongs to
+        item_index: For list items, the position in the list (0-based index)
     """
     global current_buffer_id
 
@@ -349,16 +359,19 @@ def store(key, value, label=None, data_type=TYPE_VALUE, buffer_id=None, parent_b
         buffer_id = current_buffer_id
     
     # If creating a buffer and no parent specified, use current buffer as parent
-    if parent_buffer_id is None and data_type == TYPE_BUFFER:
-        parent_buffer_id = current_buffer_id
+    if parent_id is None and data_type == TYPE_BUFFER:
+        parent_id = current_buffer_id
 
     connection, cursor = connect()
 
     cursor.execute(
-        'INSERT INTO lore (data_type, value, label, key, datetime, buffer_id, parent_buffer_id) VALUES (?, ?, ?, ?, ?, ?, ?);',
-        (data_type, value, label, key, datetime.datetime.now(), buffer_id, parent_buffer_id)
+        'INSERT INTO lore (data_type, value, label, key, datetime, buffer_id, parent_id, item_index) VALUES (?, ?, ?, ?, ?, ?, ?, ?);',
+        (data_type, value, label, key, datetime.datetime.now(), buffer_id, parent_id, item_index)
     )
     connection.commit()
+    
+    # Return the ID of the inserted row
+    return cursor.lastrowid
 
 
 def delete_entry(entry_id):
@@ -400,6 +413,136 @@ history_state = {
     'current_index': 0, # Current position in history
     'global_mode': False # Whether viewing global history or key-specific history
 }
+
+# List tracking
+list_state = {
+    'active': False,    # Whether list mode is active
+    'list_id': None,    # ID of the current list
+    'key': None,        # Key associated with the list
+    'buffer_id': None,  # Buffer ID containing the list
+    'items': [],        # Array of list items
+    'current_index': 0  # Current position in the list
+}
+
+def create_list(key, buffer_id=None):
+    """Create a new list at the specified key.
+    
+    Args:
+        key: The key where the list should be created
+        buffer_id: The buffer ID (uses current_buffer_id if None)
+        
+    Returns:
+        The ID of the new list
+    """
+    if buffer_id is None:
+        buffer_id = current_buffer_id
+        
+    # Check if key exists and convert to list if it does
+    entry = retrieve(key, buffer_id)
+    
+    if entry and entry.get('data_type') == TYPE_LIST:
+        # Already a list, just return its ID
+        return entry['id']
+    
+    # Create a new list entry
+    list_id = store(key, '', label='list', data_type=TYPE_LIST, buffer_id=buffer_id, 
+                   parent_id=buffer_id)
+    
+    # If there was a value at this key, convert it to the first item in the list
+    if entry and entry.get('data_type') == TYPE_VALUE:
+        # Add the existing value as first item in the list
+        store(None, entry['value'], data_type=TYPE_VALUE, buffer_id=buffer_id,
+             parent_id=list_id, item_index=0)
+    
+    return list_id
+
+def is_key_a_list(key, buffer_id=None):
+    """Check if a key contains a list in the specified buffer.
+    
+    Args:
+        key: The key to check
+        buffer_id: The buffer ID to check in (uses current_buffer_id if None)
+        
+    Returns:
+        True if the key contains a list, False otherwise
+    """
+    if buffer_id is None:
+        buffer_id = current_buffer_id
+        
+    result = retrieve(key, buffer_id=buffer_id, fetch='last')
+    return result and result.get('data_type') == TYPE_LIST
+
+def get_list_items(list_id):
+    """Get all items in a list.
+    
+    Args:
+        list_id: The ID of the list
+        
+    Returns:
+        List of items sorted by index
+    """
+    return retrieve(None, parent_id=list_id, fetch='list_items')
+
+def append_to_list(list_id, value):
+    """Add an item to the end of a list.
+    
+    Args:
+        list_id: The ID of the list
+        value: The value to add
+        
+    Returns:
+        The index of the new item
+    """
+    items = get_list_items(list_id)
+    next_index = len(items) if items else 0
+    
+    # Store the new item with the next available index
+    store(None, value, data_type=TYPE_VALUE, parent_id=list_id, item_index=next_index)
+    return next_index
+
+def navigate_list(direction):
+    """Navigate through list entries.
+    
+    Args:
+        direction: 'next' or 'prev' to indicate direction
+        
+    Returns:
+        True if navigation was successful, False otherwise
+    """
+    global list_state
+    
+    if not list_state['active'] or not list_state['items']:
+        speak("No list active or list is empty")
+        return False
+    
+    items = list_state['items']
+    current_index = list_state['current_index']
+    
+    if direction == 'next' and current_index < len(items) - 1:
+        # Move to next item
+        list_state['current_index'] += 1
+        current_item = items[list_state['current_index']]
+        speak(f"Item {list_state['current_index'] + 1} of {len(items)}: {current_item['value']}")
+        return True
+    elif direction == 'prev' and current_index > 0:
+        # Move to previous item
+        list_state['current_index'] -= 1
+        current_item = items[list_state['current_index']]
+        speak(f"Item {list_state['current_index'] + 1} of {len(items)}: {current_item['value']}")
+        return True
+    elif direction == 'end':
+        # Jump to end of list
+        list_state['current_index'] = len(items) - 1
+        current_item = items[list_state['current_index']]
+        speak(f"End item {len(items)} of {len(items)}: {current_item['value']}")
+        return True
+    else:
+        # Cannot navigate further
+        if direction == 'next':
+            speak("End of list")
+        else:
+            speak("Beginning of list")
+        return False
 
 def read_timestamp(entry):
     """Read the timestamp of an entry."""
@@ -559,6 +702,14 @@ def read(key):
             # Control-j: read clipboard
             elif key.char == 'j':
                 read_clipboard()
+                return
+                
+            # Control-l: enter list mode for the last accessed key
+            elif key.char == 'l':
+                if last_retrieved['key'] is not None:
+                    enter_list_mode(last_retrieved['key'], last_retrieved['buffer_id'])
+                else:
+                    speak("Select a key first before entering list mode")
                 return
                 
             return
@@ -1127,36 +1278,7 @@ def access_global_history():
     return True
 
 
-mode_map = {
-    "default": {
-        "function": default,
-        "message": "Tome of Lore",
-    },
-    "read_clipboard": {
-        "function": read_clipboard,
-        "message": "Reading clipboard",
-    },
-    "options": {
-        "function": options,
-        "message": "Options: Press s for strip input, d for debug mode",
-    },
-    "clipboard": {
-        "function": clipboard,
-        "message": "Store from clipboard",
-    },
-    "read": {
-        "function": read,
-        "message": "Read from tome",
-    },
-    "browse": {
-        "function": browse,
-        "message": "Browse URL",
-    },
-    "history": {
-        "function": history,
-        "message": "Viewing history",
-    },
-}
+# mode_map moved to the end of file
 
 
 
@@ -1221,6 +1343,10 @@ def key_handler(key):
         elif mode == 'history':
             history_state['active'] = False
             history_state['global_mode'] = False
+            return_to_read_mode()
+            return
+        elif mode == 'list':
+            list_state['active'] = False
             return_to_read_mode()
             return
         
@@ -1304,6 +1430,188 @@ def change_mode(mode_name):
     mode = mode_name
 
 
+def enter_list_mode(key, buffer_id=None):
+    """Enter list mode for a specific key.
+    
+    Args:
+        key: The key of the list to enter
+        buffer_id: The buffer ID containing the list (uses current_buffer_id if None)
+        
+    Returns:
+        True if successfully entered list mode, False otherwise
+    """
+    global list_state
+    
+    if buffer_id is None:
+        buffer_id = current_buffer_id
+    
+    # Handle key object
+    if hasattr(key, 'char'):
+        key = key.char
+    
+    # Check if this key contains a list or can be converted to one
+    entry = retrieve(key, buffer_id)
+    
+    if not entry:
+        # Create a new empty list
+        list_id = create_list(key, buffer_id)
+        speak("Created new empty list")
+    elif entry['data_type'] == TYPE_VALUE:
+        # Convert existing value to a list
+        list_id = create_list(key, buffer_id)
+        items = get_list_items(list_id)
+        speak(f"Converted to list with {len(items)} item")
+    elif entry['data_type'] == TYPE_LIST:
+        # Already a list
+        list_id = entry['id']
+        items = get_list_items(list_id)
+        speak(f"List with {len(items)} items")
+    else:
+        # Not a valid target for list mode
+        speak("Cannot convert to list")
+        return False
+    
+    # Initialize list state
+    list_state['active'] = True
+    list_state['list_id'] = list_id
+    list_state['key'] = key
+    list_state['buffer_id'] = buffer_id
+    list_state['items'] = get_list_items(list_id)
+    list_state['current_index'] = 0
+    
+    # If the list has items, announce the first item
+    if list_state['items']:
+        speak(f"Item 1 of {len(list_state['items'])}: {list_state['items'][0]['value']}")
+    
+    # Switch to list mode
+    change_mode('list')
+    return True
+
+def list_mode(key):
+    """Handle keyboard input in list mode.
+    
+    Args:
+        key: The pressed key
+        
+    Returns:
+        True if the key was handled, False otherwise
+    """
+    global list_state
+    
+    if not list_state['active']:
+        speak("List mode inactive")
+        return_to_read_mode()
+        return True
+    
+    # Handle special keys
+    if isinstance(key, keyboard.Key):
+        if key == keyboard.Key.up or key == keyboard.Key.left:
+            # Navigate to previous item
+            navigate_list('prev')
+            return True
+        elif key == keyboard.Key.down or key == keyboard.Key.right:
+            # Navigate to next item
+            navigate_list('next')
+            return True
+        elif key == keyboard.Key.backspace:
+            # Exit list mode
+            list_state['active'] = False
+            return_to_read_mode()
+            return True
+        elif key == keyboard.Key.enter:
+            # Read current item
+            if list_state['items']:
+                current_item = list_state['items'][list_state['current_index']]
+                speak(f"Item {list_state['current_index'] + 1} of {len(list_state['items'])}: {current_item['value']}")
+            else:
+                speak("List is empty")
+            return True
+        elif key == keyboard.Key.delete:
+            # Not implementing delete in this first pass
+            speak("Delete not implemented yet")
+            return True
+        return False
+    
+    # Handle character keys
+    try:
+        char = key.char
+        
+        if char == 'a':
+            # Append clipboard content to end of list
+            clipboard_content = paste()
+            if clipboard_content:
+                # Add item to end of list
+                index = append_to_list(list_state['list_id'], clipboard_content)
+                
+                # Update list items in state
+                list_state['items'] = get_list_items(list_state['list_id'])
+                
+                # Move to the new item
+                list_state['current_index'] = index
+                
+                speak(f"Appended item {index + 1}: {clipboard_content}")
+            else:
+                speak("Clipboard is empty")
+            return True
+        elif char == 'n' or char == 'j':
+            # Next item
+            navigate_list('next')
+            return True
+        elif char == 'p' or char == 'k':
+            # Previous item
+            navigate_list('prev')
+            return True
+        elif char == '.':
+            # Jump to end
+            navigate_list('end')
+            return True
+        elif char == '?':
+            # Help
+            speak("List mode commands: a to append, n or j for next, p or k for previous, period to jump to end, backspace to exit")
+            return True
+        
+    except AttributeError:
+        # Key doesn't have a char attribute
+        pass
+    
+    return False
+
+
+# Define mode_map after all functions are defined
+mode_map = {
+    "default": {
+        "function": default,
+        "message": "Tome of Lore",
+    },
+    "read_clipboard": {
+        "function": read_clipboard,
+        "message": "Reading clipboard",
+    },
+    "options": {
+        "function": options,
+        "message": "Options: Press s for strip input, d for debug mode",
+    },
+    "clipboard": {
+        "function": clipboard,
+        "message": "Store from clipboard",
+    },
+    "read": {
+        "function": read,
+        "message": "Read from tome",
+    },
+    "browse": {
+        "function": browse,
+        "message": "Browse URL",
+    },
+    "history": {
+        "function": history,
+        "message": "Viewing history",
+    },
+    "list": {
+        "function": list_mode,
+        "message": "List mode",
+    },
+}
 
 
 if __name__ == '__main__':
