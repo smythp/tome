@@ -102,7 +102,7 @@ def is_key_a_buffer(key, parent_buffer_id=None):
         parent_buffer_id = current_buffer_id
         
     result = retrieve(key, buffer_id=parent_buffer_id, fetch='last')
-    return result and result.get('data_type') == TYPE_BUFFER and result.get('parent_buffer_id') == parent_buffer_id
+    return result and result.get('data_type') == TYPE_BUFFER and result.get('parent_id') == parent_buffer_id
 
 
 def create_buffer_at_key(key, parent_buffer_id=None):
@@ -123,7 +123,7 @@ def create_buffer_at_key(key, parent_buffer_id=None):
     
     # Store the buffer with parent reference
     store(key, buffer_id, label='buffer', data_type=TYPE_BUFFER, 
-          buffer_id=parent_buffer_id, parent_buffer_id=parent_buffer_id)
+          buffer_id=parent_buffer_id, parent_id=parent_buffer_id)
     
     return buffer_id
 
@@ -254,8 +254,9 @@ def connect(skip_debug=False):
                     label TEXT,
                     data_type TEXT,
                     datetime TEXT,
-                    register INTEGER,
-                    parent_register INTEGER
+                    buffer_id INTEGER,
+                    parent_id INTEGER,
+                    item_index INTEGER
                 )
             ''')
             connection.commit()
@@ -1055,20 +1056,20 @@ def restore_history_entry():
     current_entry = entries[current_index]
     
     if history_state['global_mode']:
-        # Get the key and register from the entry itself for global history
+        # Get the key and buffer_id from the entry itself for global history
         key = current_entry['key']
-        register = current_entry['register']
+        buffer_id_value = current_entry['buffer_id']
     else:
-        # Get the key and register from history state for key-specific history
+        # Get the key and buffer_id from history state for key-specific history
         key = history_state['key']
-        register = history_state['register']
+        buffer_id_value = history_state['buffer_id']
     
     # Store the value from the history entry to create a new entry
     value = current_entry['value']
-    store(key, value, register=register)
+    store(key, value, buffer_id=buffer_id_value)
     
     if history_state['global_mode']:
-        speak(f"Restored to register {register}, key {key}: {value}")
+        speak(f"Restored to buffer {buffer_id_value}, key {key}: {value}")
     else:
         speak(f"Restored: {value}")
     
@@ -1080,7 +1081,7 @@ def restore_history_entry():
     # Update last_retrieved with the restored value
     last_retrieved['value'] = value
     last_retrieved['key'] = key
-    last_retrieved['register'] = register
+    last_retrieved['buffer_id'] = buffer_id_value
 
 
 def options(key):
@@ -1125,15 +1126,15 @@ def browse(key):
     try:
         c = key.char
         
-        # Check if we're dealing with a register key
-        enter = enter_register(key)
+        # Check if we're dealing with a buffer key
+        enter = enter_buffer(key)
         if enter:
-            # Stay in browse mode when entering a register
+            # Stay in browse mode when entering a buffer
             change_mode('browse')
             return
             
         # Get the data for this key
-        result = retrieve(key, register=current_register)
+        result = retrieve(key, buffer_id=current_buffer_id)
         if not result:
             speak(f"No data at key {c}")
             return

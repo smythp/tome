@@ -108,7 +108,8 @@ def file_db():
             data_type TEXT,
             datetime TEXT,
             buffer_id INTEGER,
-            parent_buffer_id INTEGER
+            parent_id INTEGER,
+            item_index INTEGER
         )
     ''')
     conn.commit()
@@ -467,7 +468,7 @@ def test_enter_buffer_with_file_db(file_db, mock_speech, reset_globals):
     
     # Insert a buffer record
     cursor.execute(
-        'INSERT INTO lore (key, value, data_type, datetime, buffer_id, parent_buffer_id) VALUES (?, ?, ?, ?, ?, ?);',
+        'INSERT INTO lore (key, value, data_type, datetime, buffer_id, parent_id) VALUES (?, ?, ?, ?, ?, ?);',
         (buffer_key, int(new_buffer_id), tome.TYPE_BUFFER, tome.datetime.datetime.now(), 1, 1)
     )
     conn.commit()
