@@ -1570,22 +1570,26 @@ def list_mode(key):
         return_to_read_mode()
         return True
     
-    # Handle special keys
+    # Handle special keys with equality string comparisons
     if isinstance(key, keyboard.Key):
-        if key == keyboard.Key.up:
-            # Up arrow: Move up (toward item 1)
+        # Convert key to string for easier comparison
+        key_str = str(key)
+        debug_print(f"Special key in list mode: {key_str}")
+        
+        if 'up' in key_str.lower():
+            # Up arrow: move up toward item 1
             navigate_list('next')
             return True
-        elif key == keyboard.Key.down:
-            # Down arrow: Move down (toward higher numbers) 
+        elif 'down' in key_str.lower():
+            # Down arrow: move down toward higher numbers
             navigate_list('prev')
             return True
-        elif key == keyboard.Key.left:
-            # Left arrow: Move up (toward item 1)
+        elif 'left' in key_str.lower():
+            # Left arrow: same as up
             navigate_list('next')
             return True
-        elif key == keyboard.Key.right:
-            # Right arrow: Move down (toward higher numbers)
+        elif 'right' in key_str.lower():
+            # Right arrow: same as down
             navigate_list('prev')
             return True
         elif key == keyboard.Key.backspace:
