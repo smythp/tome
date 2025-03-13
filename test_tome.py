@@ -520,3 +520,142 @@ def test_enter_buffer_with_file_db(file_db, mock_speech, reset_globals):
     
     # Verify we can access the data inside the buffer
     mock_speech.assert_any_call(inner_value)
+
+
+@pytest.mark.parametrize("buffer_key", ["b", "n", "s"])
+def test_create_and_exit_buffer(mock_db, mock_speech, reset_globals, buffer_key):
+    """Test creating, navigating, and exiting buffers.
+    
+    This test covers:
+    - Creating buffers with create_buffer_at_key()
+    - Navigating buffer stack
+    - Exiting buffers with exit_buffer()
+    - Buffer path tracking
+    """
+    conn, cursor = mock_db
+    import tome
+    
+    # Start in default buffer (1)
+    assert tome.current_buffer_id == 1
+    assert tome.buffer_stack == [1]
+    assert tome.buffer_path == []
+    
+    # Create a new buffer directly using create_buffer_at_key
+    new_buffer_id = tome.create_buffer_at_key(buffer_key)
+    
+    # Create a mock key for buffer navigation
+    mock_key = MockKeyCode(char=buffer_key)
+    
+    # Query the database to get the new buffer ID
+    cursor.execute("SELECT value FROM lore WHERE key=? AND data_type=? AND buffer_id=1",
+                  (buffer_key, tome.TYPE_BUFFER))
+    new_buffer_record = cursor.fetchone()
+    assert new_buffer_record is not None
+    
+    # Verify the buffer ID matches what was returned
+    stored_buffer_id = int(new_buffer_record['value'])
+    assert stored_buffer_id == new_buffer_id  # Should match what create_buffer_at_key returned
+    
+    # Enter the new buffer
+    tome.change_mode('read')
+    mock_speech.reset_mock()
+    
+    # First verify is_key_a_buffer recognizes the buffer
+    assert tome.is_key_a_buffer(buffer_key, tome.current_buffer_id) is True
+    
+    # Enter the buffer
+    result = tome.enter_buffer(mock_key)
+    if isinstance(result, str):
+        result = int(result)
+    
+    # Verify we entered the correct buffer
+    assert result == new_buffer_id
+    
+    # current_buffer_id might be a string in the application
+    if isinstance(tome.current_buffer_id, str):
+        assert int(tome.current_buffer_id) == new_buffer_id
+    else:
+        assert tome.current_buffer_id == new_buffer_id
+    
+    # Check buffer stack and path were updated
+    assert 1 in tome.buffer_stack or '1' in tome.buffer_stack
+    
+    # Check that new buffer ID is in stack (might be string or int)
+    buffer_in_stack = False
+    for item in tome.buffer_stack:
+        if isinstance(item, str) and int(item) == new_buffer_id:
+            buffer_in_stack = True
+            break
+        elif item == new_buffer_id:
+            buffer_in_stack = True
+            break
+    
+    assert buffer_in_stack, f"Buffer ID {new_buffer_id} not found in stack {tome.buffer_stack}"
+    assert tome.buffer_path == [buffer_key]
+    
+    # Store some data in this buffer
+    test_key = 'z'
+    test_value = 'test in buffer'
+    tome.store(test_key, test_value)
+    
+    # Verify data was stored in the correct buffer
+    result = tome.retrieve(test_key, buffer_id=new_buffer_id)
+    assert result is not None
+    assert result['value'] == test_value
+    assert result['buffer_id'] == new_buffer_id
+    
+    # Simplify the test - focus on exiting the buffer
+    # Now test exiting the current buffer
+    mock_speech.reset_mock()
+    
+    # Exit from this buffer back to root buffer
+    # exit_buffer function doesn't take arguments
+    tome.exit_buffer()
+    
+    # Verify we exited to the root buffer
+    if isinstance(tome.current_buffer_id, str):
+        assert int(tome.current_buffer_id) == 1
+    else:
+        assert tome.current_buffer_id == 1
+        
+    # Check that buffer_stack and buffer_path are reset
+    buffer_stack_is_reset = tome.buffer_stack == [1] or tome.buffer_stack == ['1']
+    assert buffer_stack_is_reset
+    assert tome.buffer_path == []
+    mock_speech.assert_any_call("Returning to buffer root")
+
+
+def test_new_buffer_id_function(mock_db, reset_globals):
+    """Test the new_buffer_id and max_buffer_id functions.
+    
+    This test verifies that:
+    - max_buffer_id correctly identifies the highest buffer ID
+    - new_buffer_id generates a unique buffer ID that's higher than any existing ID
+    """
+    conn, cursor = mock_db
+    import tome
+    
+    # First check that max_buffer_id works with just default buffer
+    max_id = tome.max_buffer_id()
+    assert max_id >= 0  # Could be 0 if no buffers exist
+    
+    # Make sure we have a valid starting point
+    current_max = max_id
+    
+    # Insert records with higher buffer_id values
+    buffer_ids = [current_max + 2, current_max + 5, current_max + 10]
+    for buffer_id in buffer_ids:
+        cursor.execute(
+            'INSERT INTO lore (key, value, data_type, datetime, buffer_id) VALUES (?, ?, ?, ?, ?);',
+            (f'test_key_{buffer_id}', f'test_value_{buffer_id}', tome.TYPE_VALUE, tome.datetime.datetime.now(), buffer_id)
+        )
+    conn.commit()
+    
+    # Now check max_buffer_id again
+    updated_max_id = tome.max_buffer_id()
+    assert updated_max_id == current_max + 10  # Should match highest buffer_id we inserted
+    
+    # Test new_buffer_id generates a value higher than max
+    next_id = tome.new_buffer_id()
+    assert next_id > updated_max_id
+    assert next_id == updated_max_id + 1  # Should be max + 1
