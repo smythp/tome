@@ -518,14 +518,20 @@ def navigate_list(direction):
     items = list_state['items']
     current_index = list_state['current_index']
     
+    # Safety check for index being in bounds
+    if current_index < 0 or current_index >= len(items):
+        # Reset to a valid index if somehow we're out of bounds
+        list_state['current_index'] = len(items) - 1
+        current_index = list_state['current_index']
+        
     if direction == 'next' and current_index < len(items) - 1:
-        # Move to next item
+        # Move to next item (toward end)
         list_state['current_index'] += 1
         current_item = items[list_state['current_index']]
         speak(f"Item {list_state['current_index'] + 1} of {len(items)}: {current_item['value']}")
         return True
     elif direction == 'prev' and current_index > 0:
-        # Move to previous item
+        # Move to previous item (toward beginning)
         list_state['current_index'] -= 1
         current_item = items[list_state['current_index']]
         speak(f"Item {list_state['current_index'] + 1} of {len(items)}: {current_item['value']}")
@@ -764,14 +770,30 @@ def read(key):
         # Update the value in last_retrieved
         last_retrieved['value'] = value
         
-        # First press - read it out loud
-        if key_presses[current_key_id] == 1:
-            speak(f"{value}")
-        # Second consecutive press of same key - copy to clipboard (backward compatibility)
+        # Handle differently based on data type and number of presses
+        if result['data_type'] == TYPE_LIST:
+            # Get list items
+            items = get_list_items(result['id'])
+            
+            # First press - announce list info and read the last item
+            if key_presses[current_key_id] == 1:
+                if items:
+                    speak(f"List with {len(items)} items. Last item: {items[-1]['value']}")
+                else:
+                    speak(f"Empty list at key {c}")
+            # Second consecutive press - enter list mode
+            else:
+                enter_list_mode(c, current_buffer_id)
         else:
-            copy(value)
-            speak(f"Copied to clipboard")
-            exit()
+            # Standard value handling
+            # First press - read it out loud
+            if key_presses[current_key_id] == 1:
+                speak(f"{value}")
+            # Second consecutive press of same key - copy to clipboard (backward compatibility)
+            else:
+                copy(value)
+                speak(f"Copied to clipboard")
+                exit()
             
     except AttributeError:
         pass
@@ -1471,17 +1493,25 @@ def enter_list_mode(key, buffer_id=None):
         speak("Cannot convert to list")
         return False
     
+    # Get the list items
+    items = get_list_items(list_id)
+    
     # Initialize list state
     list_state['active'] = True
     list_state['list_id'] = list_id
     list_state['key'] = key
     list_state['buffer_id'] = buffer_id
-    list_state['items'] = get_list_items(list_id)
-    list_state['current_index'] = 0
+    list_state['items'] = items
     
-    # If the list has items, announce the first item
-    if list_state['items']:
-        speak(f"Item 1 of {len(list_state['items'])}: {list_state['items'][0]['value']}")
+    # Start at the end of the list (most recently added item)
+    last_index = len(items) - 1 if items else 0
+    list_state['current_index'] = last_index
+    
+    # If the list has items, announce the last item
+    if items:
+        speak(f"Item {last_index + 1} of {len(items)}: {items[last_index]['value']}")
+    else:
+        speak("Empty list")
     
     # Switch to list mode
     change_mode('list')
@@ -1520,7 +1550,7 @@ def list_mode(key):
             return True
         elif key == keyboard.Key.enter:
             # Read current item
-            if list_state['items']:
+            if list_state['items'] and 0 <= list_state['current_index'] < len(list_state['items']):
                 current_item = list_state['items'][list_state['current_index']]
                 speak(f"Item {list_state['current_index'] + 1} of {len(list_state['items'])}: {current_item['value']}")
             else:
@@ -1536,6 +1566,18 @@ def list_mode(key):
     try:
         char = key.char
         
+        # Check for Control key combinations first
+        if pressed['ctrl']:
+            if char == 'n':
+                # Control+n: Next item (toward end)
+                navigate_list('next')
+                return True
+            elif char == 'p':
+                # Control+p: Previous item (toward beginning)
+                navigate_list('prev')
+                return True
+            
+        # Regular character keys
         if char == 'a':
             # Append clipboard content to end of list
             clipboard_content = paste()
@@ -1546,19 +1588,19 @@ def list_mode(key):
                 # Update list items in state
                 list_state['items'] = get_list_items(list_state['list_id'])
                 
-                # Move to the new item
-                list_state['current_index'] = index
+                # Move to the new item (which is at the end)
+                list_state['current_index'] = len(list_state['items']) - 1
                 
                 speak(f"Appended item {index + 1}: {clipboard_content}")
             else:
                 speak("Clipboard is empty")
             return True
         elif char == 'n' or char == 'j':
-            # Next item
+            # Next item (toward end)
             navigate_list('next')
             return True
         elif char == 'p' or char == 'k':
-            # Previous item
+            # Previous item (toward beginning)
             navigate_list('prev')
             return True
         elif char == '.':
@@ -1567,7 +1609,7 @@ def list_mode(key):
             return True
         elif char == '?':
             # Help
-            speak("List mode commands: a to append, n or j for next, p or k for previous, period to jump to end, backspace to exit")
+            speak("List mode commands: a to append, n or j or Control-n for next, p or k or Control-p for previous, period to jump to end, backspace to exit")
             return True
         
     except AttributeError:
