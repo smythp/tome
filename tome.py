@@ -1361,7 +1361,7 @@ def start():
         listener = keyboard.Listener(
             on_press=key_handler,
             on_release=release_handler,
-            suppress=False
+            suppress=True
         )
         
         # Ensure compatibility with different package managers
