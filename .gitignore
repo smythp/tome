@@ -15,3 +15,4 @@ run_tests.sh
 .pytest_cache/
 .coverage
 htmlcov/
+.aider*
