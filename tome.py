@@ -640,11 +640,11 @@ def read(key):
                         url = last_retrieved['value']
                         
                     # Open URL in browser
-                    webbrowser.open(url)
                     speak(f"Opening in browser")
+                    webbrowser.open(url)
                     exit()
                 
-                # Control-t: read timestamp of the last accessed value
+                # Control-t: read timestajmp of the last accessed value
                 elif key.char == 't':
                     # Get the full entry to access timestamp
                     result = retrieve(last_retrieved['key'], buffer_id=last_retrieved['buffer_id'])
