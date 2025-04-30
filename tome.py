@@ -602,6 +602,37 @@ def read_timestamp(entry):
     speak(f"Created on {date_str}")
 
 
+def is_valid_domain(text):
+    """Check if text is a valid domain without protocol."""
+    return re.match(r'^[a-zA-Z0-9][-a-zA-Z0-9.]*\.[a-zA-Z]{2,}(?:\/.*)?$', text) is not None
+
+def open_url(value):
+    """Open a URL, adding http:// if needed."""
+    if not is_valid_url(value):
+        if is_valid_domain(value):
+            url = "http://" + value
+            speak(f"Adding http protocol")
+        else:
+            speak("Not a valid URL")
+            return
+    else:
+        url = value
+    
+    webbrowser.open(url)
+    return True
+
+def detect_content_type(value):
+    """Detect the type of content in a string."""
+    if is_valid_url(value) or is_valid_domain(value):
+        return "url"
+    elif os.path.exists(value):
+        return "file"
+    elif re.match(r'^[^/]*\s*\|', value):
+        # Simple detection for bash commands (contains pipe character)
+        return "command"
+    else:
+        return "text"
+
 def read(key):
     """Read data from a key in the current buffer."""
     global mode
@@ -819,11 +850,39 @@ def read(key):
             # First press - read it out loud
             if key_presses[current_key_id] == 1:
                 speak(f"{value}")
-            # Second consecutive press of same key - copy to clipboard (backward compatibility)
+            # Second consecutive press of same key - smart action based on content
             else:
-                copy(value)
-                speak(f"Copied to clipboard")
-                exit()
+                # Get default action from config
+                default_action = get_config('default_action', 'copy')
+                
+                if default_action == 'auto':
+                    # Smart behavior based on content type
+                    content_type = detect_content_type(value)
+                    
+                    if content_type == "url":
+                        open_url(value)
+                        speak(f"Opening in browser")
+                        exit()
+                    # Future extension points for files and commands
+                    # elif content_type == "file":
+                    #     subprocess.run(["xdg-open", value])
+                    #     speak(f"Opening file")
+                    #     exit()
+                    # elif content_type == "command":
+                    #     # Implement safety checks here
+                    #     speak(f"Running command")
+                    #     # subprocess.run(value, shell=True)
+                    #     exit()
+                    else:
+                        # Default to copy for non-URLs
+                        copy(value)
+                        speak(f"Copied to clipboard")
+                        exit()
+                else:
+                    # Original behavior - always copy
+                    copy(value)
+                    speak(f"Copied to clipboard")
+                    exit()
             
     except AttributeError:
         pass
@@ -1093,6 +1152,15 @@ def options(key):
             set_config('debug_mode', 'on' if debug_mode else 'off')
             speak(f"Debug mode {status(debug_mode)}")
             
+        # Toggle default action
+        elif key.char == "a":
+            # Toggle between copy and auto mode
+            current = get_config('default_action', 'copy')
+            new_value = 'auto' if current == 'copy' else 'copy'
+            set_config('default_action', new_value, 
+                       'Controls what happens on double-press (copy or auto)')
+            speak(f"Default action set to {new_value}")
+            
         # Return to read mode if escape is pressed
         elif key.char == "\x1b":  # Escape character
             return_to_read_mode()
@@ -1344,10 +1412,14 @@ def start():
     buffer_stack = [1]     # Initialize navigation stack with root buffer
     buffer_path = []       # Empty buffer path (we're at root)
     
-    # Load debug setting from database
+    # Load settings from database
     debug_setting = get_config('debug_mode', 'off')
     debug_mode = (debug_setting == 'on')
     debug_print(f"Debug mode loaded from database: {debug_mode}")
+    
+    # Ensure default_action config exists
+    if get_config('default_action') is None:
+        set_config('default_action', 'copy', 'Controls what happens on double-press (copy or auto)')
     
     # Start in read mode - suppress the initial speak since we'll do it manually
     suppress_mode_message = True
@@ -1695,7 +1767,7 @@ mode_map = {
     },
     "options": {
         "function": options,
-        "message": "Options: Press s for strip input, d for debug mode",
+        "message": "Options: Press s for strip input, d for debug mode, a for default action",
     },
     "clipboard": {
         "function": clipboard,
