@@ -825,10 +825,59 @@ def read(key):
     global history_state
     
     try:
+        # Handle Delete key press for deleting the current register
+        if key == keyboard.Key.delete:
+            if last_retrieved['key'] is not None:
+                debug_print(f"Attempting to delete register {last_retrieved['key']} in buffer {last_retrieved['buffer_id']}")
+
+                # Get the entry to delete
+                result = retrieve(last_retrieved['key'], buffer_id=last_retrieved['buffer_id'])
+                debug_print(f"Retrieved result for deletion: {result}")
+
+                if not result:
+                    speak(f"No data at key {last_retrieved['key']}")
+                    return
+
+                # Check if it's a buffer (buffers require confirmation)
+                if result['data_type'] == TYPE_BUFFER:
+                    speak("Use delete key when inside buffer to delete buffer with confirmation")
+                    return
+
+                # Mark the entry as deleted
+                debug_print(f"Attempting to delete entry with ID {result['id']}")
+
+                # Get detailed information before deletion
+                connection, cursor = connect()
+                cursor.execute('SELECT * FROM lore WHERE id = ?;', (result['id'],))
+                debug_print(f"Entry details before deletion: {cursor.fetchone()}")
+
+                # Execute deletion directly instead of using soft_delete_entry
+                cursor.execute('UPDATE lore SET deleted = 1 WHERE id = ?;', (result['id'],))
+                connection.commit()
+                rows_affected = cursor.rowcount
+
+                debug_print(f"Direct SQL update affected {rows_affected} rows")
+
+                # Verify the deletion
+                cursor.execute('SELECT * FROM lore WHERE id = ?;', (result['id'],))
+                debug_print(f"Entry details after deletion: {cursor.fetchone()}")
+
+                if rows_affected > 0:
+                    speak(f"Deleted register {last_retrieved['key']}")
+
+                    # Clear last_retrieved since the item was deleted
+                    last_retrieved['value'] = None
+                else:
+                    speak(f"Failed to delete register {last_retrieved['key']}")
+                return
+            else:
+                speak("No register selected")
+                return
+
         c = key.char
         # Create a key ID for the current key
         current_key_id = f"{current_buffer_id}:{c}"
-        
+
         # Check if this is a Control key press for operating on the last read value
         if pressed['ctrl']:
             # Operations that require a last retrieved value
@@ -1066,8 +1115,10 @@ def read(key):
                     copy(value)
                     speak(f"Copied to clipboard")
                     exit()
-            
+
     except AttributeError:
+        # Handle special keys that don't have char attribute
+        # Delete key is already handled above
         pass
 
 
@@ -1694,6 +1745,16 @@ def key_handler(key):
 
     # Handle buffer deletion with confirmation when Delete key is pressed in a non-root buffer
     if key == keyboard.Key.delete and mode == 'read' and current_buffer_id != 1:
+        debug_print(f"Delete key pressed in buffer {current_buffer_id}, checking last_retrieved: {last_retrieved}")
+
+        # For delete buffer operation, we need to have no register selected
+        # If a register is selected, the read mode handler will handle the deletion
+        if last_retrieved and last_retrieved['key'] is not None:
+            debug_print("Register is selected, letting read mode handle deletion")
+            # Let the read mode handler take care of this (register deletion)
+            mode_function(key)
+            return
+
         # Don't delete the root buffer
         if current_buffer_id == 1:
             speak("Cannot delete root buffer")
@@ -1701,6 +1762,7 @@ def key_handler(key):
 
         # Set up confirmation for buffer deletion
         buffer_name = get_buffer_name()
+        debug_print(f"Setting up confirmation to delete buffer {buffer_name}")
 
         confirm_state['active'] = True
         confirm_state['action'] = 'delete_buffer'
