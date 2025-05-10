@@ -7,7 +7,8 @@ CREATE TABLE lore (
        value VARCHAR,           -- The actual value stored
        label VARCHAR,           -- Optional descriptive label
        key VARCHAR,             -- The keyboard key this value is associated with
-       datetime TIMESTAMP       -- When this entry was created
+       datetime TIMESTAMP,      -- When this entry was created
+       deleted BOOLEAN DEFAULT 0 -- Whether this entry is deleted (0=false, 1=true)
        );
 
 CREATE TABLE config (

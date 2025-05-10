@@ -230,18 +230,18 @@ def connect(skip_debug=False):
             debug_print(f"Database directory exists: {os.path.exists(os.path.dirname(database))}")
             debug_print(f"Database permissions: {oct(os.stat(database).st_mode & 0o777) if os.path.exists(database) else 'N/A'}")
             debug_print(f"Current working directory: {os.getcwd()}")
-        
+
         # Ensure directory exists for the database
         db_dir = os.path.dirname(database)
         if not os.path.exists(db_dir):
             os.makedirs(db_dir)
-            
+
         # Use a timeout to handle potential locks and specify URI mode for better diagnostics
         connection = sqlite3.connect(database, timeout=10)
         connection.row_factory = dict_factory
 
         cursor = connection.cursor()
-        
+
         # Check if the lore table exists, if not create it
         cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='lore'")
         if not cursor.fetchone():
@@ -257,11 +257,22 @@ def connect(skip_debug=False):
                     datetime TEXT,
                     buffer_id INTEGER,
                     parent_id INTEGER,
-                    item_index INTEGER
+                    item_index INTEGER,
+                    deleted BOOLEAN DEFAULT 0
                 )
             ''')
             connection.commit()
-            
+        else:
+            # Check if the deleted column exists, add it if not
+            cursor.execute("PRAGMA table_info(lore)")
+            columns = cursor.fetchall()
+            column_names = [col['name'] for col in columns]
+
+            if 'deleted' not in column_names:
+                debug_print("Adding deleted column to lore table")
+                cursor.execute("ALTER TABLE lore ADD COLUMN deleted BOOLEAN DEFAULT 0")
+                connection.commit()
+
         return connection, cursor
     except sqlite3.Error as e:
         # Provide a helpful error message with diagnostics
@@ -273,16 +284,17 @@ def connect(skip_debug=False):
         raise
 
 
-def retrieve(key, buffer_id=None, fetch='last', parent_id=None):
+def retrieve(key, buffer_id=None, fetch='last', parent_id=None, include_deleted=False):
     """Retrieve item from database.
-    
+
     Args:
         key: The key to retrieve
         buffer_id: The buffer ID to retrieve from (uses current_buffer_id if None)
-        fetch: How to fetch - 'last' for most recent entry, 'history' for all entries, 
+        fetch: How to fetch - 'last' for most recent entry, 'history' for all entries,
                'all' for all entries, 'last_value' for just the value, 'list_items' for items in a list
         parent_id: For 'list_items' fetch, the ID of the parent list to retrieve items from
-               
+        include_deleted: Whether to include deleted items in the results (default: False)
+
     Returns:
         The retrieved entry or entries, or None if not found
     """
@@ -304,15 +316,24 @@ def retrieve(key, buffer_id=None, fetch='last', parent_id=None):
 
         if fetch == 'list_items' and parent_id is not None:
             # Special query for list items, ordered by item_index
-            query = "SELECT * FROM lore WHERE parent_id=? ORDER BY item_index ASC;"
+            query = "SELECT * FROM lore WHERE parent_id=?"
+            if not include_deleted:
+                query += " AND (deleted IS NULL OR deleted = 0)"
+            query += " ORDER BY item_index ASC;"
             results = cursor.execute(query, (parent_id,))
             results = results.fetchall()
             debug_print(f"Fetched {len(results) if results else 0} list items")
             return results
         elif fetch == 'last_value':
-            query = "SELECT value FROM lore WHERE buffer_id=? and key=?;"
+            query = "SELECT value FROM lore WHERE buffer_id=? and key=?"
+            if not include_deleted:
+                query += " AND (deleted IS NULL OR deleted = 0)"
+            query += ";"
         else:
-            query = "SELECT * FROM lore WHERE buffer_id=? and key=?;"
+            query = "SELECT * FROM lore WHERE buffer_id=? and key=?"
+            if not include_deleted:
+                query += " AND (deleted IS NULL OR deleted = 0)"
+            query += ";"
 
         if fetch == 'last':
             query = query[:-1] + " ORDER BY id DESC LIMIT 1;"
@@ -377,13 +398,113 @@ def store(key, value, label=None, data_type=TYPE_VALUE, buffer_id=None, parent_i
 
 
 def delete_entry(entry_id):
-    """Delete an entry from the database by its ID."""
+    """Hard delete an entry from the database by its ID (permanent removal)."""
     connection, cursor = connect()
-    
+
     cursor.execute('DELETE FROM lore WHERE id = ?;', (entry_id,))
     connection.commit()
-    
+
     return cursor.rowcount > 0  # Return True if at least one row was deleted
+
+def soft_delete_entry(entry_id):
+    """Mark an entry as deleted without removing it from the database.
+
+    Args:
+        entry_id: The ID of the entry to mark as deleted
+
+    Returns:
+        True if the entry was successfully marked as deleted, False otherwise
+    """
+    connection, cursor = connect()
+
+    cursor.execute('UPDATE lore SET deleted = 1 WHERE id = ?;', (entry_id,))
+    connection.commit()
+
+    return cursor.rowcount > 0  # Return True if at least one row was updated
+
+def restore_entry(entry_id):
+    """Restore a deleted entry by marking it as not deleted.
+
+    Args:
+        entry_id: The ID of the entry to restore
+
+    Returns:
+        (success, message) tuple where success is a boolean indicating if the
+        restoration was successful, and message is a description of the result
+    """
+    connection, cursor = connect()
+
+    # Check if the entry exists and is deleted
+    cursor.execute('SELECT * FROM lore WHERE id = ?;', (entry_id,))
+    entry = cursor.fetchone()
+
+    if not entry:
+        return False, "Entry not found"
+
+    if entry.get('deleted', 0) != 1:
+        return False, "Entry is not deleted"
+
+    # Check if restoring would conflict with an existing entry
+    if entry['key'] is not None:  # Skip conflict check for entries with no key (like list items)
+        cursor.execute(
+            'SELECT id FROM lore WHERE key = ? AND buffer_id = ? AND (deleted IS NULL OR deleted = 0) LIMIT 1;',
+            (entry['key'], entry['buffer_id'])
+        )
+        conflict = cursor.fetchone()
+
+        if conflict:
+            return False, f"Cannot restore, register {entry['key']} is already occupied"
+
+    # Restore the entry
+    cursor.execute('UPDATE lore SET deleted = 0 WHERE id = ?;', (entry_id,))
+    connection.commit()
+
+    return True, "Entry restored"
+
+def delete_buffer_recursively(buffer_id):
+    """Recursively mark a buffer and all its contents as deleted.
+
+    Args:
+        buffer_id: The ID of the buffer to delete
+
+    Returns:
+        (success, message) tuple where success is a boolean indicating if the
+        deletion was successful, and message is a description of the result
+    """
+    if buffer_id == 1:  # Prevent deletion of root buffer
+        return False, "Cannot delete root buffer"
+
+    connection, cursor = connect()
+
+    # First find the buffer entry itself (the entry that points to this buffer ID)
+    cursor.execute(
+        'SELECT id FROM lore WHERE value = ? AND data_type = "buffer";',
+        (buffer_id,)
+    )
+    buffer_entry = cursor.fetchone()
+
+    if not buffer_entry:
+        return False, "Buffer not found"
+
+    # Mark the buffer entry as deleted
+    cursor.execute('UPDATE lore SET deleted = 1 WHERE id = ?;', (buffer_entry['id'],))
+
+    # Mark all entries in this buffer as deleted
+    cursor.execute('UPDATE lore SET deleted = 1 WHERE buffer_id = ?;', (buffer_id,))
+
+    # Find all sub-buffers
+    cursor.execute(
+        'SELECT value FROM lore WHERE buffer_id = ? AND data_type = "buffer";',
+        (buffer_id,)
+    )
+    sub_buffers = cursor.fetchall()
+
+    # Recursively delete sub-buffers
+    for sub_buffer in sub_buffers:
+        delete_buffer_recursively(sub_buffer['value'])
+
+    connection.commit()
+    return True, f"Buffer {buffer_id} and its contents deleted"
 
 
 def default(key):
@@ -893,7 +1014,7 @@ def history(key):
     global history_state
     global mode
     global last_retrieved
-    
+
     try:
         if key.char:
             # Control key combinations
@@ -902,35 +1023,53 @@ def history(key):
                 if key.char == 'p':
                     navigate_history('previous')
                     return
-                    
+
                 # Control-n: Next entry (newer)
                 elif key.char == 'n':
                     navigate_history('next')
                     return
-                    
+
                 # Control-z: Restore the currently selected history entry
                 elif key.char == 'z':  # Changed from 'r' to 'z' to avoid conflict
                     restore_history_entry()
                     return
-                    
+
+                # Control-r: Restore a deleted entry
+                elif key.char == 'r' and history_state['entries']:
+                    current_entry = history_state['entries'][history_state['current_index']]
+
+                    # Check if the entry is deleted
+                    if current_entry.get('deleted', 0) == 1:
+                        # Try to restore
+                        success, message = restore_entry(current_entry['id'])
+                        speak(message)
+
+                        if success:
+                            # Update the entry in the history list
+                            history_state['entries'][history_state['current_index']]['deleted'] = 0
+                            speak("Entry restored")
+                    else:
+                        speak("Entry is not deleted")
+                    return
+
                 # Control-t: Read timestamp of current history entry
                 elif key.char == 't' and history_state['entries']:
                     current_entry = history_state['entries'][history_state['current_index']]
                     read_timestamp(current_entry)
                     return
-                    
+
                 # Control-c: Copy current history entry to clipboard
                 elif key.char == 'c' and history_state['entries']:
                     current_entry = history_state['entries'][history_state['current_index']]
                     copy(current_entry['value'])
                     speak(f"Copied to clipboard")
                     return
-                    
+
                 # Control-b: Browse URL in current history entry
                 elif key.char == 'b' and history_state['entries']:
                     current_entry = history_state['entries'][history_state['current_index']]
                     value = current_entry['value']
-                    
+
                     # Check if value is a URL
                     if not is_valid_url(value):
                         # If it's just a domain without protocol, add http://
@@ -942,12 +1081,12 @@ def history(key):
                             return
                     else:
                         url = value
-                        
+
                     # Open URL in browser
                     webbrowser.open(url)
                     speak(f"Opening in browser")
                     exit()
-                    
+
                 # Control-j: Read clipboard content
                 elif key.char == 'j':
                     read_clipboard()
@@ -958,27 +1097,27 @@ def history(key):
                 history_state['global_mode'] = False
                 return_to_read_mode()
                 return
-                
+
     except AttributeError:
         # Handle special keys
         if key == keyboard.Key.up:  # Up arrow key for older entries
             navigate_history('previous')
             return
-            
+
         elif key == keyboard.Key.down:  # Down arrow key for newer entries
             navigate_history('next')
             return
-            
+
         elif key == keyboard.Key.delete:  # Delete key to permanently remove an entry
             delete_history_entry()
             return
-            
+
         elif key == keyboard.Key.esc:  # Escape key to exit history mode
             history_state['active'] = False
             history_state['global_mode'] = False
             return_to_read_mode()
             return
-            
+
         # Other special keys are ignored
         if key not in [keyboard.Key.shift, keyboard.Key.ctrl, keyboard.Key.alt]:
             return
@@ -987,15 +1126,15 @@ def history(key):
 def navigate_history(direction):
     """Navigate through history entries."""
     global history_state
-    
+
     entries = history_state['entries']
     current_index = history_state['current_index']
     global_mode = history_state['global_mode']
-    
+
     if not entries:
         speak("No history available")
         return
-    
+
     if direction == 'previous' and current_index < len(entries) - 1:
         # Move to older entry (higher index)
         current_index += 1
@@ -1008,81 +1147,72 @@ def navigate_history(direction):
         else:
             speak("At newest entry")
         return
-    
+
     # Update the current index
     history_state['current_index'] = current_index
-    
+
     # Get the current entry
     current_entry = entries[current_index]
     total_entries = len(entries)
-    
+
+    # Check if entry is deleted
+    deleted_prefix = "Deleted: " if current_entry.get('deleted', 0) == 1 else ""
+
     # Format differently depending on whether we're in global or key-specific history
     if global_mode:
         speak(f"Entry {current_index + 1} of {total_entries}")
         format_global_history_entry(current_entry)
     else:
         # Speak entry information and value (without timestamp) for key-specific history
-        speak(f"Entry {current_index + 1} of {total_entries}: {current_entry['value']}")
+        speak(f"Entry {current_index + 1} of {total_entries}: {deleted_prefix}{current_entry['value']}")
 
 
 def delete_history_entry():
-    """Delete the currently selected history entry."""
+    """Soft-delete the currently selected history entry."""
     global history_state
-    
+
     if not history_state['active'] or not history_state['entries']:
         speak("No history entry to delete")
         return
-    
+
     # Get the current entry from history
     current_index = history_state['current_index']
     entries = history_state['entries']
     global_mode = history_state['global_mode']
-    
+
     if current_index >= len(entries):
         speak("Invalid history entry")
         return
-    
+
     # Get the entry to delete
     entry_to_delete = entries[current_index]
     entry_id = entry_to_delete['id']
-    
-    # Delete the entry from the database
-    success = delete_entry(entry_id)
-    
+
+    # Check if the entry is already deleted
+    if entry_to_delete.get('deleted', 0) == 1:
+        speak("Entry is already deleted")
+        return
+
+    # Mark the entry as deleted in the database
+    success = soft_delete_entry(entry_id)
+
     if success:
+        # Mark the entry as deleted in our local state
+        entry_to_delete['deleted'] = 1
+
         if global_mode:
             key = entry_to_delete['key']
             buffer_id = entry_to_delete['buffer_id']
             speak(f"Deleted entry from buffer {buffer_id}, key {key}: {entry_to_delete['value']}")
         else:
             speak(f"Deleted entry: {entry_to_delete['value']}")
-        
-        # Remove the entry from the entries list
-        entries.pop(current_index)
-        
-        # Update entries list
-        history_state['entries'] = entries
-        
-        # Check if we need to adjust the current index
-        if entries:
-            # If we've deleted the last entry in the list, move to the previous entry
-            if current_index >= len(entries):
-                history_state['current_index'] = len(entries) - 1
-                
-            # Speak the new current entry
-            new_current = entries[history_state['current_index']]
-            
-            if global_mode:
-                speak("Now at entry")
-                format_global_history_entry(new_current)
-            else:
-                speak(f"Now at entry: {new_current['value']}")
+
+        # Announce the current entry as deleted
+        if global_mode:
+            speak("Entry now marked as deleted")
+            format_global_history_entry(entry_to_delete)
         else:
-            # No more entries, exit history mode
-            speak("No more entries")
-            history_state['active'] = False
-            history_state['global_mode'] = False
-            return_to_read_mode()
+            speak(f"Entry now marked as deleted: {entry_to_delete['value']}")
     else:
         speak("Failed to delete entry")
 
@@ -1351,28 +1481,31 @@ def format_global_history_entry(entry):
     key = entry['key']
     buffer_id = entry['buffer_id']
     value = entry['value']
-    
-    speak(f"Buffer {buffer_id}, key {key}: {value}")
+
+    # Add "Deleted: " prefix if the entry is marked as deleted
+    deleted_prefix = "Deleted: " if entry.get('deleted', 0) == 1 else ""
+
+    speak(f"Buffer {buffer_id}, key {key}: {deleted_prefix}{value}")
 
 
 def access_global_history():
     """Access the global history of all changes across all buffers."""
     global history_state
     global mode
-    
+
     # Only accessible from the root buffer
     if current_buffer_id != 1:
         speak("Global History only available from the root buffer")
         return False
-    
-    # Get all history entries
+
+    # Get all history entries (including deleted ones)
     connection, cursor = connect()
-    history_entries = get_global_history(connection, cursor)
-    
+    history_entries = get_global_history(connection, cursor, include_deleted=True)
+
     if not history_entries:
         speak("No history entries available")
         return False
-    
+
     # Update history state
     history_state['active'] = True
     history_state['key'] = None
@@ -1380,16 +1513,16 @@ def access_global_history():
     history_state['entries'] = history_entries
     history_state['current_index'] = 0  # Start with most recent entry (index 0)
     history_state['global_mode'] = True
-    
+
     # Announce entering global history with count
     speak(f"Global History: {len(history_entries)} entries")
-    
+
     # Display the current (most recent) entry
     current_entry = history_entries[0]
-    
+
     # Format the entry differently for global history to include buffer and key
     format_global_history_entry(current_entry)
-    
+
     # Switch to history mode
     change_mode('history')
     return True
