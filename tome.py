@@ -91,19 +91,50 @@ def new_buffer_id():
 
 def is_key_a_buffer(key, parent_buffer_id=None):
     """Check if a key contains a buffer in the specified parent buffer.
-    
+
     Args:
         key: The key to check
         parent_buffer_id: The parent buffer ID to check in (uses current_buffer_id if None)
-        
+
     Returns:
         True if the key contains a buffer, False otherwise
     """
     if parent_buffer_id is None:
         parent_buffer_id = current_buffer_id
-        
-    result = retrieve(key, buffer_id=parent_buffer_id, fetch='last')
-    return result and result.get('data_type') == TYPE_BUFFER and result.get('parent_id') == parent_buffer_id
+
+    if hasattr(key, 'char'):
+        key_str = key.char
+    else:
+        key_str = str(key)
+
+    debug_print(f"Checking if key '{key_str}' contains a buffer in parent buffer {parent_buffer_id}")
+
+    # Get all entries for this key (including deleted ones for debugging)
+    connection, cursor = connect()
+    cursor.execute(
+        'SELECT * FROM lore WHERE key = ? AND buffer_id = ? AND data_type = ? ORDER BY id DESC;',
+        (key_str, parent_buffer_id, TYPE_BUFFER)
+    )
+    all_entries = cursor.fetchall()
+
+    debug_print(f"Found {len(all_entries) if all_entries else 0} total entries for key '{key_str}' in buffer {parent_buffer_id}")
+
+    # Filter out deleted entries and check if any remain
+    active_entries = [entry for entry in all_entries if entry.get('deleted', 0) == 0]
+
+    for entry in all_entries:
+        debug_print(f"  Entry ID: {entry['id']}, deleted: {entry.get('deleted', 'NULL')}, parent_id: {entry['parent_id']}, value: {entry['value']}")
+
+    if active_entries:
+        debug_print(f"Found {len(active_entries)} active buffer entries")
+        is_buffer = True
+    else:
+        debug_print("No active buffer entries found")
+        is_buffer = False
+
+    debug_print(f"Is key '{key_str}' a buffer? {is_buffer}")
+
+    return is_buffer
 
 
 def create_buffer_at_key(key, parent_buffer_id=None):
@@ -472,25 +503,38 @@ def delete_buffer_recursively(buffer_id):
         deletion was successful, and message is a description of the result
     """
     if buffer_id == 1:  # Prevent deletion of root buffer
+        debug_print("Cannot delete root buffer")
         return False, "Cannot delete root buffer"
 
     connection, cursor = connect()
+    debug_print(f"Deleting buffer with ID: {buffer_id}")
 
     # First find the buffer entry itself (the entry that points to this buffer ID)
     cursor.execute(
-        'SELECT id FROM lore WHERE value = ? AND data_type = "buffer";',
+        'SELECT id, buffer_id, key FROM lore WHERE value = ? AND data_type = "buffer";',
         (buffer_id,)
     )
     buffer_entry = cursor.fetchone()
 
     if not buffer_entry:
+        debug_print(f"Buffer entry not found for buffer ID: {buffer_id}")
         return False, "Buffer not found"
+
+    debug_print(f"Found buffer entry: {buffer_entry}")
 
     # Mark the buffer entry as deleted
     cursor.execute('UPDATE lore SET deleted = 1 WHERE id = ?;', (buffer_entry['id'],))
+    debug_print(f"Marked buffer entry with ID {buffer_entry['id']} as deleted")
+
+    # Get the parent buffer key information for verification
+    cursor.execute('SELECT key, buffer_id FROM lore WHERE id = ?', (buffer_entry['id'],))
+    key_info = cursor.fetchone()
+    if key_info:
+        debug_print(f"Buffer {buffer_id} was at key '{key_info['key']}' in parent buffer {key_info['buffer_id']}")
 
     # Mark all entries in this buffer as deleted
     cursor.execute('UPDATE lore SET deleted = 1 WHERE buffer_id = ?;', (buffer_id,))
+    debug_print(f"Marked all entries in buffer {buffer_id} as deleted")
 
     # Find all sub-buffers
     cursor.execute(
@@ -498,12 +542,21 @@ def delete_buffer_recursively(buffer_id):
         (buffer_id,)
     )
     sub_buffers = cursor.fetchall()
+    debug_print(f"Found {len(sub_buffers) if sub_buffers else 0} sub-buffers in buffer {buffer_id}")
 
     # Recursively delete sub-buffers
     for sub_buffer in sub_buffers:
+        debug_print(f"Recursively deleting sub-buffer: {sub_buffer['value']}")
         delete_buffer_recursively(sub_buffer['value'])
 
+    # Verify the buffer entry was actually marked as deleted
+    cursor.execute('SELECT deleted FROM lore WHERE id = ?', (buffer_entry['id'],))
+    verify = cursor.fetchone()
+    if verify:
+        debug_print(f"Verification - buffer entry deleted status: {verify['deleted']}")
+
     connection.commit()
+    debug_print(f"Committed deletion of buffer {buffer_id}")
     return True, f"Buffer {buffer_id} and its contents deleted"
 
 
@@ -545,6 +598,15 @@ list_state = {
     'buffer_id': None,  # Buffer ID containing the list
     'items': [],        # Array of list items
     'current_index': 0  # Current position in the list
+}
+
+# Confirmation dialog state
+confirm_state = {
+    'active': False,    # Whether confirmation is active
+    'action': None,     # Action to perform on confirmation ('delete_buffer', etc.)
+    'params': {},       # Parameters for the action
+    'prompt': None,     # Prompt to display
+    'previous_mode': None # Mode to return to if canceled
 }
 
 def create_list(key, buffer_id=None):
@@ -1364,13 +1426,13 @@ def is_valid_url(url):
 
 def enter_buffer(key):
     """Check if the selected key contains a buffer in the current buffer, and enter it if true.
-    
+
     A buffer is only accessible if it was explicitly created in the current buffer.
     This prevents buffer "leaking" where a buffer created in one parent is accessible from another.
-    
+
     Args:
         key: The key that might contain a buffer
-        
+
     Returns:
         The new buffer ID if successfully entered, False otherwise
     """
@@ -1379,38 +1441,51 @@ def enter_buffer(key):
     global buffer_path
 
     try:
-        # Print debug info about key
-        if hasattr(key, 'char'):
-            debug_print(f"Checking if key '{key.char}' contains a buffer in current buffer {current_buffer_id}")
-        else:
-            debug_print(f"Checking if key '{key}' contains a buffer in current buffer {current_buffer_id}")
-        
+        # Get key as string for logging
+        key_str = key.char if hasattr(key, 'char') else str(key)
+        debug_print(f"Attempting to enter buffer at key '{key_str}' in current buffer {current_buffer_id}")
+
         # Check if this key contains a buffer in the current buffer
         # This is the critical check to fix buffer nesting - we need to ensure the buffer's parent
         # matches our current buffer exactly, not just any buffer with this key
         if is_key_a_buffer(key, current_buffer_id):
-            # Get the buffer data
-            retrieved = retrieve(key, buffer_id=current_buffer_id, fetch='last')
+            # Get the buffer data directly from a more specific query
+            connection, cursor = connect()
+            cursor.execute(
+                'SELECT * FROM lore WHERE key = ? AND buffer_id = ? AND data_type = ? AND (deleted IS NULL OR deleted = 0) ORDER BY id DESC LIMIT 1;',
+                (key_str, current_buffer_id, TYPE_BUFFER)
+            )
+            retrieved = cursor.fetchone()
+
+            debug_print(f"Retrieved buffer data: {retrieved}")
+
+            # Double-check buffer exists and isn't deleted
+            if not retrieved:
+                debug_print("Buffer entry not found or was deleted")
+                speak(f"No buffer at {key_str}")
+                return False
+
             new_buffer_id = retrieved['value']
-            
+            debug_print(f"Found non-deleted buffer with ID {new_buffer_id}")
+
             # Track the path to this buffer
             if hasattr(key, 'char'):
                 buffer_path.append(key.char)
             else:
                 buffer_path.append(str(key))
-                
+
             # Create buffer name from path
             buffer_name = ''.join(buffer_path)
-            
+
             speak(f"Entering buffer {buffer_name}")
             current_buffer_id = new_buffer_id
             buffer_stack.append(current_buffer_id)  # Add to navigation stack
-            
+
             return current_buffer_id
         else:
             # Key either doesn't exist or doesn't contain a buffer in the current context
             return False
-            
+
     except Exception as e:
         # Enhanced error handling
         print(f"Error in enter_buffer: {e}")  # Always print errors
@@ -1539,25 +1614,29 @@ def start():
     global debug_mode
     global current_buffer_id
     global buffer_stack
-    
+
     # Initialize buffer-related state
     current_buffer_id = 1  # Start in the root buffer
     buffer_stack = [1]     # Initialize navigation stack with root buffer
     buffer_path = []       # Empty buffer path (we're at root)
-    
+
+    # Enable debug mode for troubleshooting
+    debug_mode = True
+
     # Load settings from database
     debug_setting = get_config('debug_mode', 'off')
-    debug_mode = (debug_setting == 'on')
+    if not debug_mode:  # Only override if we haven't forced debug mode on
+        debug_mode = (debug_setting == 'on')
     debug_print(f"Debug mode loaded from database: {debug_mode}")
-    
+
     # Ensure default_action config exists
     if get_config('default_action') is None:
         set_config('default_action', 'copy', 'Controls what happens on double-press (copy or auto)')
-    
+
     # Start in read mode - suppress the initial speak since we'll do it manually
     suppress_mode_message = True
     change_mode("read")
-    
+
     # Now speak the welcome message
     speak("Tome of lore")
 
@@ -1585,6 +1664,8 @@ def start():
 
 
 def key_handler(key):
+    global confirm_state
+
     mode_function = mode_map[mode]['function']
     debug_print(f"Current mode: {mode}")
     debug_print(f"Key pressed: {key}")
@@ -1603,24 +1684,57 @@ def key_handler(key):
             list_state['active'] = False
             return_to_read_mode()
             return
-        
+        elif mode == 'confirm':
+            # Cancel confirmation on backspace
+            confirm_state['active'] = False
+            previous_mode = confirm_state['previous_mode'] or 'read'
+            speak("Cancelled")
+            change_mode(previous_mode)
+            return
+
+    # Handle buffer deletion with confirmation when Delete key is pressed in a non-root buffer
+    if key == keyboard.Key.delete and mode == 'read' and current_buffer_id != 1:
+        # Don't delete the root buffer
+        if current_buffer_id == 1:
+            speak("Cannot delete root buffer")
+            return
+
+        # Set up confirmation for buffer deletion
+        buffer_name = get_buffer_name()
+
+        confirm_state['active'] = True
+        confirm_state['action'] = 'delete_buffer'
+        confirm_state['params'] = {
+            'buffer_id': current_buffer_id,
+            'buffer_name': buffer_name
+        }
+        confirm_state['prompt'] = f"Delete buffer {buffer_name}? Press y to confirm, n to cancel"
+        confirm_state['previous_mode'] = mode
+
+        # Enter confirmation mode
+        change_mode('confirm')
+
+        # Speak the prompt
+        speak(confirm_state['prompt'])
+        return
+
     try:
         # Check for Control-Alt-v to kill all speech
         if key.char == "v" and pressed['ctrl'] and pressed['alt']:
             kill_speech()
             speak("Silenced")
             return
-            
+
         # Global quit command
         if key.char == "q":
             speak("Quit")
             exit()
-        
+
         # Global history access (Control-h when no key is selected in root buffer)
         if key.char == "h" and pressed['ctrl'] and mode == "read" and last_retrieved['key'] is None and current_buffer_id == 1:
             if access_global_history():
                 return
-        
+
         # All other keypresses are handled by the current mode's function
         mode_function(key)
     except AttributeError:
@@ -1673,17 +1787,23 @@ def return_to_read_mode():
 
 def change_mode(mode_name):
     """Change the mode to mode_name."""
-    
+
     global mode
     global suppress_mode_message
     global key_presses
-    
+    global confirm_state
+
+    # Get the appropriate mode message
     mode_message = mode_map[mode_name]["message"]
+
+    # For confirmation mode, use the specific prompt if available
+    if mode_name == 'confirm' and confirm_state['prompt']:
+        mode_message = confirm_state['prompt']
 
     # Clear key presses when changing modes
     if mode_name != mode:
         key_presses = {}
-    
+
     # Speak the new mode if the mode has changed
     if mode_name != mode and mode_message and not suppress_mode_message:
         speak(mode_message)
@@ -1888,6 +2008,97 @@ def list_mode(key):
     return False
 
 
+# Confirmation mode for y/n prompts
+def confirm(key):
+    """Handle confirmation prompts (y/n) for various actions."""
+    global confirm_state, mode, current_buffer_id, buffer_stack, buffer_path
+
+    try:
+        # Check for character keys
+        if key.char:
+            if key.char.lower() == 'y':
+                # User confirmed the action
+                if confirm_state['action'] == 'delete_buffer':
+                    # Get buffer parameters
+                    buffer_id = confirm_state['params'].get('buffer_id')
+                    buffer_name = confirm_state['params'].get('buffer_name', '')
+
+                    # Check if valid buffer
+                    if buffer_id == 1:
+                        speak("Cannot delete root buffer")
+                    else:
+                        # Perform buffer deletion
+                        success, message = delete_buffer_recursively(buffer_id)
+                        if success:
+                            debug_print(f"Successfully deleted buffer {buffer_id}, now exiting it")
+                            speak(f"Deleted buffer {buffer_name}")
+
+                            # Force an exit from the buffer by modifying the buffer stack
+                            if len(buffer_stack) > 1:
+                                debug_print(f"Current buffer stack before exit: {buffer_stack}")
+                                debug_print(f"Current buffer path before exit: {buffer_path}")
+
+                                buffer_stack.pop()  # Remove current buffer from stack
+                                current_buffer_id = buffer_stack[-1]  # Set current to parent buffer
+
+                                debug_print(f"New current buffer ID: {current_buffer_id}")
+                                debug_print(f"New buffer stack: {buffer_stack}")
+
+                                # Update buffer path
+                                if buffer_path:
+                                    buffer_path.pop()  # Remove last key from path
+                                    debug_print(f"New buffer path: {buffer_path}")
+                            else:
+                                # Already at root, shouldn't happen but just in case
+                                debug_print("Cannot exit root buffer")
+                                speak("Error: Cannot exit root buffer")
+                        else:
+                            speak(message)
+
+                # Clear confirm state
+                confirm_state['active'] = False
+                confirm_state['action'] = None
+                confirm_state['params'] = {}
+
+                # Return to previous mode
+                previous_mode = confirm_state['previous_mode'] or 'read'
+                change_mode(previous_mode)
+                return
+
+            elif key.char.lower() == 'n':
+                # User declined the action
+                speak("Cancelled")
+
+                # Clear confirm state
+                confirm_state['active'] = False
+                confirm_state['action'] = None
+                confirm_state['params'] = {}
+
+                # Return to previous mode
+                previous_mode = confirm_state['previous_mode'] or 'read'
+                change_mode(previous_mode)
+                return
+
+            # For any other keys, repeat the prompt
+            elif confirm_state['prompt']:
+                speak(confirm_state['prompt'])
+
+    except AttributeError:
+        # Handle special keys
+        if key == keyboard.Key.esc:
+            # Cancel on escape
+            speak("Cancelled")
+
+            # Clear confirm state
+            confirm_state['active'] = False
+            confirm_state['action'] = None
+            confirm_state['params'] = {}
+
+            # Return to previous mode
+            previous_mode = confirm_state['previous_mode'] or 'read'
+            change_mode(previous_mode)
+            return
+
 # Define mode_map after all functions are defined
 mode_map = {
     "default": {
@@ -1921,6 +2132,10 @@ mode_map = {
     "list": {
         "function": list_mode,
         "message": "List mode",
+    },
+    "confirm": {
+        "function": confirm,
+        "message": None,  # Custom message will be set based on action
     },
 }
 
