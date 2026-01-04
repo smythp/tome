@@ -562,21 +562,26 @@ class Store:
 
         Returns:
             The index of the new item
-        """
-        # Get current items to determine next index
-        items = self.list_items(list_id)
-        next_index = len(items)
 
-        # Get the list entry to find its buffer_id
+        Raises:
+            ValueError: If list doesn't exist or is deleted
+        """
+        # Get the list entry to verify it exists and isn't deleted
         conn, cursor = self._connect()
         try:
             cursor.execute("SELECT * FROM lore WHERE id = ?", (list_id,))
             list_entry = cursor.fetchone()
             if list_entry is None:
                 raise ValueError(f"List {list_id} not found")
+            if list_entry.get("deleted"):
+                raise ValueError(f"List {list_id} is deleted")
             buffer_id = list_entry["buffer_id"]
         finally:
             conn.close()
+
+        # Get current items to determine next index
+        items = self.list_items(list_id)
+        next_index = len(items)
 
         self._add_list_item(list_id, value, buffer_id, next_index)
         return next_index
