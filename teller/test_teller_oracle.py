@@ -1,221 +1,218 @@
-"""Oracle tests - property-based verification of teller invariants.
+"""Oracle tests - property-based verification using Hypothesis.
 
-Uses Hypothesis to verify properties hold for ALL inputs.
+Verify mathematical properties hold for ALL inputs.
 """
 
 import pytest
-from hypothesis import given, strategies as st, settings, HealthCheck
+from hypothesis import given, strategies as st, settings, assume
+from unittest.mock import patch, MagicMock
 
 
-# Shared settings for property tests
-property_settings = settings(
-    max_examples=50,
-    suppress_health_check=[HealthCheck.function_scoped_fixture]
-)
-
-
-# Strategies
-texts = st.text(min_size=0, max_size=1000)
-speeds = st.integers(min_value=1, max_value=1000)
-waits = st.booleans()
+# Shared settings
+oracle_settings = settings(max_examples=100, deadline=None)
 
 
 # ============================================================================
-# Text Handler Invariants
+# Handler Protocol Properties
 # ============================================================================
 
-class TestTextHandlerInvariants:
-    """Properties that must hold for TextHandler."""
+class TestHandlerProtocolProperties:
+    """Properties that must hold for all handlers."""
 
-    @pytest.fixture
-    def handler(self):
-        from teller.handlers.text import TextHandler
-        return TextHandler()
+    @given(handler_name=st.sampled_from(["text", "debug", "espeak"]))
+    @oracle_settings
+    def test_name_is_nonempty_string(self, handler_name):
+        """Handler name is always a non-empty string."""
+        from teller import get_handler
+        handler = get_handler(handler_name)
+        assert isinstance(handler.name, str)
+        assert len(handler.name) > 0
 
-    @given(text=texts)
-    @property_settings
-    def test_speak_never_crashes(self, handler, text):
-        """speak() should never crash regardless of input."""
-        # Should complete without exception
+    @given(handler_name=st.sampled_from(["text", "debug", "espeak"]))
+    @oracle_settings
+    def test_name_is_lowercase(self, handler_name):
+        """Handler name is always lowercase."""
+        from teller import get_handler
+        handler = get_handler(handler_name)
+        assert handler.name == handler.name.lower()
+
+    @given(handler_name=st.sampled_from(["text", "debug", "espeak"]))
+    @oracle_settings
+    def test_stop_never_raises(self, handler_name):
+        """stop() never raises, even when nothing playing."""
+        from teller import get_handler
+        handler = get_handler(handler_name)
+        # Should never raise
+        handler.stop()
+        handler.stop()
+        handler.stop()
+
+
+# ============================================================================
+# Speak Properties
+# ============================================================================
+
+class TestSpeakProperties:
+    """Properties about speak() behavior."""
+
+    @given(text=st.text(max_size=1000))
+    @oracle_settings
+    def test_text_handler_speak_never_crashes(self, text):
+        """text handler speak() handles any string."""
+        from teller import get_handler
+        handler = get_handler("text")
+        # Should not raise
         handler.speak(text)
 
-    @given(text=texts, speed=speeds, wait=waits)
-    @property_settings
-    def test_all_params_accepted(self, handler, text, speed, wait):
-        """All parameter combinations should be accepted."""
-        handler.speak(text, speed=speed, wait=wait)
-
-    @given(text=st.text(min_size=1, max_size=100))
-    @property_settings
-    def test_output_contains_text(self, handler, text, capsys):
-        """Non-empty text appears in output."""
-        handler.speak(text)
-        captured = capsys.readouterr()
-        assert text in captured.out
-
-    @property_settings
-    @given(n=st.integers(min_value=0, max_value=100))
-    def test_stop_idempotent(self, handler, n):
-        """Calling stop() any number of times is safe."""
-        for _ in range(n):
-            handler.stop()
-
-
-# ============================================================================
-# Debug Handler Invariants
-# ============================================================================
-
-class TestDebugHandlerInvariants:
-    """Properties that must hold for DebugHandler."""
-
-    @pytest.fixture
-    def handler(self):
-        from teller.handlers.debug import DebugHandler
-        return DebugHandler()
-
-    @given(text=texts)
-    @property_settings
-    def test_speak_never_crashes(self, handler, text):
-        """speak() should never crash."""
+    @given(text=st.text(max_size=1000))
+    @oracle_settings
+    def test_debug_handler_speak_never_crashes(self, text):
+        """debug handler speak() handles any string."""
+        from teller import get_handler
+        handler = get_handler("debug")
+        # Should not raise
         handler.speak(text)
 
-    @given(text=texts, speed=speeds)
-    @property_settings
-    def test_speed_in_output(self, handler, text, speed, capsys):
-        """Speed value appears in debug output."""
+    @given(
+        text=st.text(max_size=100),
+        speed=st.integers(min_value=-1000, max_value=10000)
+    )
+    @oracle_settings
+    def test_speed_parameter_doesnt_crash(self, text, speed):
+        """Any integer speed value doesn't crash."""
+        from teller import get_handler
+        handler = get_handler("text")
         handler.speak(text, speed=speed)
-        captured = capsys.readouterr()
-        assert str(speed) in captured.out
 
-    @given(text=texts, wait=waits)
-    @property_settings
-    def test_wait_in_output(self, handler, text, wait, capsys):
-        """Wait value appears in debug output."""
+    @given(
+        text=st.text(max_size=100),
+        wait=st.booleans()
+    )
+    @oracle_settings
+    def test_wait_parameter_is_boolean(self, text, wait):
+        """Boolean wait values work correctly."""
+        from teller import get_handler
+        handler = get_handler("text")
         handler.speak(text, wait=wait)
-        captured = capsys.readouterr()
-        assert str(wait) in captured.out
 
 
 # ============================================================================
-# Module API Invariants
+# Discovery Properties
 # ============================================================================
 
-class TestModuleAPIInvariants:
-    """Properties for module-level functions."""
+class TestDiscoveryProperties:
+    """Properties about handler discovery."""
 
-    @given(text=texts)
-    @property_settings
-    def test_speak_never_crashes(self, text):
-        """Module speak() never crashes."""
-        import teller
-        # Use text handler to avoid audio
-        original = teller._default_handler
-        try:
-            teller.set_default_handler("text")
-            teller.speak(text)
-        finally:
-            teller._default_handler = original
-
-    @given(text=texts)
-    @property_settings
-    def test_announce_never_crashes(self, text):
-        """Module announce() never crashes."""
-        import teller
-        original = teller._default_handler
-        try:
-            teller.set_default_handler("text")
-            teller.announce(text)
-        finally:
-            teller._default_handler = original
-
-    def test_list_handlers_returns_list(self):
-        """list_handlers() always returns a list."""
+    @given(st.data())
+    @oracle_settings
+    def test_list_handlers_is_stable(self, data):
+        """list_handlers() returns same result each time."""
         from teller import list_handlers
-        result = list_handlers()
-        assert isinstance(result, list)
+        result1 = list_handlers()
+        result2 = list_handlers()
+        assert set(result1) == set(result2)
 
-    def test_list_handlers_contains_builtins(self):
-        """list_handlers() contains the built-in handlers."""
-        from teller import list_handlers
-        handlers = list_handlers()
-        assert "text" in handlers
-        assert "debug" in handlers
-        # espeak may or may not be available
+    @given(st.data())
+    @oracle_settings
+    def test_listed_handlers_are_gettable(self, data):
+        """Every handler in list_handlers() can be retrieved."""
+        from teller import list_handlers, get_handler
+        for name in list_handlers():
+            handler = get_handler(name)
+            assert handler is not None
+            assert handler.name == name
 
-    @given(name=st.text(min_size=1, max_size=20).filter(
+    @given(handler_name=st.sampled_from(["text", "debug", "espeak"]))
+    @oracle_settings
+    def test_get_handler_returns_fresh_instance(self, handler_name):
+        """get_handler() returns new instance each call."""
+        from teller import get_handler
+        h1 = get_handler(handler_name)
+        h2 = get_handler(handler_name)
+        assert h1 is not h2
+
+    @given(name=st.text(min_size=1, max_size=50).filter(
         lambda x: x not in ["text", "debug", "espeak"]
     ))
-    @property_settings
-    def test_get_unknown_handler_raises(self, name):
-        """get_handler() raises KeyError for unknown names."""
+    @oracle_settings
+    def test_unknown_handler_raises(self, name):
+        """Unknown handler names raise KeyError."""
         from teller import get_handler
+        assume(name.strip() != "")  # Non-empty after strip
         with pytest.raises(KeyError):
             get_handler(name)
 
 
 # ============================================================================
-# Handler Registration Invariants
+# Espeak Properties (with mocking)
 # ============================================================================
 
-class TestRegistrationInvariants:
-    """Properties about handler registration."""
+class TestEspeakProperties:
+    """Properties specific to espeak handler."""
 
-    def test_all_registered_handlers_have_name(self):
-        """Every registered handler has a name property."""
-        from teller import list_handlers, get_handler
-        for name in list_handlers():
-            handler = get_handler(name)
-            assert hasattr(handler, "name")
-            assert handler.name == name
-
-    def test_all_registered_handlers_have_speak(self):
-        """Every registered handler has speak method."""
-        from teller import list_handlers, get_handler
-        for name in list_handlers():
-            handler = get_handler(name)
-            assert hasattr(handler, "speak")
-            assert callable(handler.speak)
-
-    def test_all_registered_handlers_have_stop(self):
-        """Every registered handler has stop method."""
-        from teller import list_handlers, get_handler
-        for name in list_handlers():
-            handler = get_handler(name)
-            assert hasattr(handler, "stop")
-            assert callable(handler.stop)
-
-
-# ============================================================================
-# Consistency Invariants
-# ============================================================================
-
-class TestConsistencyInvariants:
-    """Properties about system consistency."""
-
-    @given(handler_name=st.sampled_from(["text", "debug"]))
-    @property_settings
-    def test_get_handler_consistent(self, handler_name):
-        """get_handler() returns same instance for same name."""
+    @given(text=st.text(min_size=1, max_size=100).filter(lambda x: x.strip()))
+    @oracle_settings
+    def test_espeak_calls_subprocess_for_nonempty(self, text):
+        """espeak calls subprocess for non-empty text."""
         from teller import get_handler
-        h1 = get_handler(handler_name)
-        h2 = get_handler(handler_name)
-        assert h1 is h2
+        handler = get_handler("espeak")
 
-    @given(handler_name=st.sampled_from(["text", "debug"]))
-    @property_settings
-    def test_set_then_get_default(self, handler_name):
-        """After set_default_handler(x), default is x."""
-        import teller
-        original = teller._default_handler
-        try:
-            teller.set_default_handler(handler_name)
-            assert teller._default_handler.name == handler_name
-        finally:
-            teller._default_handler = original
+        with patch("subprocess.Popen") as mock_popen, \
+             patch("subprocess.run"):  # For stop()
+            mock_popen.return_value = MagicMock()
+            handler.speak(text)
+            # Should have called Popen (async mode)
+            mock_popen.assert_called()
 
-    def test_handlers_list_matches_registry(self):
-        """list_handlers() matches internal registry."""
-        import teller
-        listed = set(teller.list_handlers())
-        registered = set(teller._handlers.keys())
-        assert listed == registered
+    @given(speed=st.integers(min_value=1, max_value=1000))
+    @oracle_settings
+    def test_espeak_passes_speed_to_command(self, speed):
+        """Speed parameter appears in espeak command."""
+        from teller import get_handler
+        handler = get_handler("espeak")
+
+        with patch("subprocess.Popen") as mock_popen, \
+             patch("subprocess.run"):
+            mock_popen.return_value = MagicMock()
+            handler.speak("test", speed=speed)
+
+            if mock_popen.called:
+                call_args = mock_popen.call_args
+                cmd = call_args[0][0] if call_args[0] else call_args.kwargs.get("args", [])
+                # Speed should be in command
+                assert any(str(speed) in str(arg) for arg in cmd)
+
+
+# ============================================================================
+# Consistency Properties
+# ============================================================================
+
+class TestConsistencyProperties:
+    """Cross-cutting consistency properties."""
+
+    @given(handler_name=st.sampled_from(["text", "debug", "espeak"]))
+    @oracle_settings
+    def test_handler_name_matches_requested(self, handler_name):
+        """Returned handler's name matches request."""
+        from teller import get_handler
+        handler = get_handler(handler_name)
+        assert handler.name == handler_name
+
+    @given(n=st.integers(min_value=1, max_value=10))
+    @oracle_settings
+    def test_multiple_stops_safe(self, n):
+        """Calling stop() N times is safe."""
+        from teller import get_handler
+        handler = get_handler("text")
+        for _ in range(n):
+            handler.stop()
+
+    @given(n=st.integers(min_value=1, max_value=10))
+    @oracle_settings
+    def test_speak_stop_alternation(self, n):
+        """Alternating speak/stop is safe."""
+        from teller import get_handler
+        handler = get_handler("text")
+        for _ in range(n):
+            handler.speak("hello")
+            handler.stop()

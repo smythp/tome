@@ -33,6 +33,7 @@ logger = logging.getLogger(__name__)
 
 # Handler registry - populated on import
 _handlers: Dict[str, BaseHandler] = {}
+_handler_classes: Dict[str, type] = {}
 
 # Default handler instance
 _default_handler: Optional[BaseHandler] = None
@@ -40,9 +41,9 @@ _default_handler: Optional[BaseHandler] = None
 
 def _init_handlers() -> None:
     """Initialize handler registry via discovery."""
-    global _handlers, _default_handler
+    global _handlers, _handler_classes, _default_handler
 
-    _handlers = discover_handlers()
+    _handlers, _handler_classes = discover_handlers()
 
     # Set default handler (prefer espeak if available, else text)
     if "espeak" in _handlers:
@@ -100,15 +101,16 @@ def get_handler(name: str) -> BaseHandler:
         name: Handler name (e.g., 'espeak', 'text', 'debug').
 
     Returns:
-        The handler instance.
+        A fresh handler instance.
 
     Raises:
         KeyError: If handler not found.
     """
-    if name not in _handlers:
-        available = ", ".join(_handlers.keys()) if _handlers else "none"
+    if name not in _handler_classes:
+        available = ", ".join(_handler_classes.keys()) if _handler_classes else "none"
         raise KeyError(f"Handler '{name}' not found. Available: {available}")
-    return _handlers[name]
+    # Return fresh instance to avoid shared mutable state
+    return _handler_classes[name]()
 
 
 def list_handlers() -> List[str]:

@@ -15,7 +15,7 @@ from .base import BaseHandler
 logger = logging.getLogger(__name__)
 
 
-def discover_handlers(handlers_dir: Path = None) -> Dict[str, BaseHandler]:
+def discover_handlers(handlers_dir: Path = None) -> tuple[Dict[str, BaseHandler], Dict[str, type]]:
     """Discover and instantiate handlers from a directory.
 
     Scans the given directory for .py files, imports them, and looks
@@ -27,16 +27,17 @@ def discover_handlers(handlers_dir: Path = None) -> Dict[str, BaseHandler]:
                       to this module.
 
     Returns:
-        Dict mapping handler names to handler instances.
+        Tuple of (handler instances dict, handler classes dict).
     """
     if handlers_dir is None:
         handlers_dir = Path(__file__).parent / "handlers"
 
     handlers: Dict[str, BaseHandler] = {}
+    handler_classes: Dict[str, type] = {}
 
     if not handlers_dir.exists():
         logger.warning(f"[teller] Handlers directory not found: {handlers_dir}")
-        return handlers
+        return handlers, handler_classes
 
     for file_path in handlers_dir.glob("*.py"):
         # Skip __init__.py and private files
@@ -66,6 +67,7 @@ def discover_handlers(handlers_dir: Path = None) -> Dict[str, BaseHandler]:
                         instance = item()
                         handler_name = instance.name
                         handlers[handler_name] = instance
+                        handler_classes[handler_name] = item
                         logger.debug(f"[teller] Registered handler: {handler_name}")
                     except Exception as e:
                         logger.warning(
@@ -76,7 +78,7 @@ def discover_handlers(handlers_dir: Path = None) -> Dict[str, BaseHandler]:
         except Exception as e:
             logger.warning(f"[teller] Failed to load {file_path}: {e}")
 
-    return handlers
+    return handlers, handler_classes
 
 
 def _load_module_from_path(file_path: Path):

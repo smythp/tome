@@ -102,7 +102,7 @@ class TestHandler(BaseHandler):
         (temp_handlers_dir / "test_handler.py").write_text(handler_code)
 
         from teller.discovery import discover_handlers
-        handlers = discover_handlers(temp_handlers_dir)
+        handlers, handler_classes = discover_handlers(temp_handlers_dir)
 
         assert "test_handler" in handlers
 
@@ -111,7 +111,7 @@ class TestHandler(BaseHandler):
         (temp_handlers_dir / "__init__.py").write_text("# init")
 
         from teller.discovery import discover_handlers
-        handlers = discover_handlers(temp_handlers_dir)
+        handlers, handler_classes = discover_handlers(temp_handlers_dir)
 
         # Should not error, and __init__ shouldn't register as handler
         assert "__init__" not in handlers
@@ -125,7 +125,7 @@ class NotAHandler:
         (temp_handlers_dir / "not_a_handler.py").write_text(non_handler)
 
         from teller.discovery import discover_handlers
-        handlers = discover_handlers(temp_handlers_dir)
+        handlers, handler_classes = discover_handlers(temp_handlers_dir)
 
         assert "not_a_handler" not in handlers
         assert len(handlers) == 0
@@ -137,7 +137,7 @@ class NotAHandler:
 
         from teller.discovery import discover_handlers
         # Should not raise
-        handlers = discover_handlers(temp_handlers_dir)
+        handlers, handler_classes = discover_handlers(temp_handlers_dir)
         assert "bad_handler" not in handlers
 
     def test_registers_with_handler_name(self, temp_handlers_dir):
@@ -159,7 +159,7 @@ class MyHandler(BaseHandler):
         (temp_handlers_dir / "some_file.py").write_text(handler_code)
 
         from teller.discovery import discover_handlers
-        handlers = discover_handlers(temp_handlers_dir)
+        handlers, handler_classes = discover_handlers(temp_handlers_dir)
 
         assert "custom_name" in handlers
         assert "some_file" not in handlers
