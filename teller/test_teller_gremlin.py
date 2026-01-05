@@ -293,3 +293,74 @@ class TestEspeakEdgeCases:
         with patch("subprocess.Popen") as mock:
             mock.side_effect = OSError("No such file")
             handler.speak("test")  # Should not raise
+
+
+# ============================================================================
+# Hardening Round 1 Bug Fixes
+# ============================================================================
+
+class TestHardeningBugFixes:
+    """Tests for bugs found in hardening round 1."""
+
+    def test_stop_doesnt_kill_external_espeak(self):
+        """Bug fix: stop() should only kill teller's process, not all espeak."""
+        import subprocess
+        import time
+        import shutil
+        from teller import get_handler
+        
+        if not shutil.which('espeak-ng') and not shutil.which('espeak'):
+            pytest.skip("espeak not installed")
+        
+        # Start external espeak process
+        ext_proc = subprocess.Popen(['espeak-ng', '-s270', '-z', 'external'])
+        time.sleep(0.1)
+        
+        # Use teller
+        handler = get_handler('espeak')
+        handler.speak('teller', wait=False)
+        time.sleep(0.1)
+        
+        # Stop teller speech
+        handler.stop()
+        time.sleep(0.1)
+        
+        # External process should still be alive
+        assert ext_proc.poll() is None, "stop() killed external espeak process"
+        ext_proc.kill()
+    
+    def test_empty_speak_calls_stop(self):
+        """Bug fix: speak("") should call stop() like any other speak."""
+        from teller import get_handler
+        from unittest.mock import MagicMock, patch
+        
+        handler = get_handler('espeak')
+        
+        # Patch stop to track if it's called
+        original_stop = handler.stop
+        stop_called = []
+        
+        def track_stop():
+            stop_called.append(True)
+            original_stop()
+        
+        handler.stop = track_stop
+        
+        # speak("") should call stop
+        handler.speak("")
+        assert len(stop_called) > 0, "speak('') did not call stop()"
+    
+    def test_set_default_handler_uses_singleton(self):
+        """Bug fix: set_default_handler should use singleton from _handlers."""
+        from teller import set_default_handler
+        import teller
+        
+        # Get the singleton instance
+        original = teller._handlers['text']
+        
+        # Set as default
+        set_default_handler('text')
+        
+        # Should be the same instance
+        assert teller._default_handler is original, \
+            "set_default_handler created new instance instead of using singleton"

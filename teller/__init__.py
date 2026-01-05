@@ -132,7 +132,10 @@ def set_default_handler(name: str) -> None:
         KeyError: If handler not found.
     """
     global _default_handler
-    _default_handler = get_handler(name)
+    if name not in _handlers:
+        available = ", ".join(_handlers.keys()) if _handlers else "none"
+        raise KeyError(f"Handler '{name}' not found. Available: {available}")
+    _default_handler = _handlers[name]
 
 
 # Initialize on import

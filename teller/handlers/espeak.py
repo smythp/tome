@@ -45,11 +45,11 @@ class EspeakHandler(BaseHandler):
             logger.error("[teller/espeak] espeak not available")
             return
 
-        if not text:
-            return
-
         # Kill any ongoing speech first
         self.stop()
+
+        if not text:
+            return
 
         # Build command
         # -s: speed in WPM
@@ -77,13 +77,3 @@ class EspeakHandler(BaseHandler):
                 except Exception:
                     pass
             self._process = None
-
-        # Also try to kill any orphaned espeak processes
-        try:
-            subprocess.run(
-                ["killall", "-q", "espeak", "espeak-ng"],
-                capture_output=True,
-                timeout=1
-            )
-        except Exception:
-            pass
