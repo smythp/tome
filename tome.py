@@ -2002,8 +2002,42 @@ def list_mode(key):
             
         # Delete key handling
         if key == keyboard.Key.delete:
-            # Not implementing delete in this first pass
-            speak("Delete not implemented yet")
+            if list_state['items'] and 0 <= list_state['current_index'] < len(list_state['items']):
+                # Get the current item
+                current_item = list_state['items'][list_state['current_index']]
+                item_id = current_item['id']
+
+                # Get user-facing index for feedback
+                user_idx = user_index(list_state['current_index'], list_state['items'])
+
+                # Mark the item as deleted
+                connection, cursor = connect()
+                cursor.execute('UPDATE lore SET deleted = 1 WHERE id = ?;', (item_id,))
+                connection.commit()
+                rows_affected = cursor.rowcount
+
+                if rows_affected > 0:
+                    speak(f"Deleted item {user_idx}")
+
+                    # Remove the item from our local list state
+                    list_state['items'].pop(list_state['current_index'])
+
+                    # Adjust current index if needed
+                    if list_state['items']:
+                        # If we deleted the last item, move to the new "last" item
+                        if list_state['current_index'] >= len(list_state['items']):
+                            list_state['current_index'] = len(list_state['items']) - 1
+
+                        # Announce current position
+                        current_item = list_state['items'][list_state['current_index']]
+                        user_idx = user_index(list_state['current_index'], list_state['items'])
+                        speak(f"Now at item {user_idx} of {len(list_state['items'])}: {current_item['value']}")
+                    else:
+                        speak("List is now empty")
+                else:
+                    speak("Failed to delete item")
+            else:
+                speak("No item to delete")
             return True
         return False
     
