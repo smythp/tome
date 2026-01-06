@@ -63,7 +63,7 @@ class ModeContext:
     """
     teller: Teller
     store: Any  # Actually store.store.Store, typed as Any to avoid circular import
-    switch: Callable[[str, bool], None]  # (mode_name, silent) -> None
+    switch: Callable[..., None]  # switch(mode_name, *, silent=False)
     back: Callable[[], None]  # Return to previous mode
     current_mode: str
     previous_mode: str | None
@@ -160,7 +160,7 @@ class Mode:
         if name not in self._state:
             self._state[name] = {}
 
-    def switch(self, mode_name: str, silent: bool = False) -> None:
+    def switch(self, mode_name: str, *, silent: bool = False) -> None:
         """
         Switch to a different mode.
 
