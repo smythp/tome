@@ -1386,6 +1386,7 @@ def options(key):
         # Toggle strip input option
         if key.char == "s":
             strip_input = not strip_input
+            set_config('strip_input', 'on' if strip_input else 'off')
             speak(f"Strip input {status(strip_input)}")
             
         # Toggle debug mode option
@@ -1679,6 +1680,9 @@ def start():
     if not debug_mode:  # Only override if we haven't forced debug mode on
         debug_mode = (debug_setting == 'on')
     debug_print(f"Debug mode loaded from database: {debug_mode}")
+
+    strip_setting = get_config('strip_input', 'on')
+    strip_input = (strip_setting == 'on')
 
     # Ensure default_action config exists
     if get_config('default_action') is None:
