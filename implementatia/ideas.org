@@ -1,3 +1,0 @@
-* TODO open urls by default
-* TODO Lock data
-* TODO undo
