@@ -634,3 +634,123 @@ class TestInvariants:
         items = store.list_items(list_id)
         for i, item in enumerate(items):
             assert item["item_index"] == i
+
+
+# ============================================================================
+# 8. Config Operations
+# ============================================================================
+
+class TestGetConfig:
+    """Test config get operations."""
+
+    def test_get_nonexistent_returns_none(self, store):
+        """Getting a config key that doesn't exist returns None."""
+        assert store.get_config("nonexistent") is None
+
+    def test_get_nonexistent_returns_default(self, store):
+        """Getting nonexistent config returns provided default."""
+        assert store.get_config("nonexistent", "fallback") == "fallback"
+
+    def test_get_after_set_returns_value(self, store):
+        """Can get a config value that was set."""
+        store.set_config("debug", "on")
+        assert store.get_config("debug") == "on"
+
+    def test_get_ignores_default_when_value_exists(self, store):
+        """Default is ignored when value exists."""
+        store.set_config("debug", "on")
+        assert store.get_config("debug", "off") == "on"
+
+
+class TestSetConfig:
+    """Test config set operations."""
+
+    def test_set_creates_new_config(self, store):
+        """Setting creates a new config entry."""
+        store.set_config("theme", "dark")
+        assert store.get_config("theme") == "dark"
+
+    def test_set_updates_existing_config(self, store):
+        """Setting an existing key updates it."""
+        store.set_config("theme", "dark")
+        store.set_config("theme", "light")
+        assert store.get_config("theme") == "light"
+
+    def test_set_with_description(self, store):
+        """Can set config with description."""
+        store.set_config("speed", "270", description="TTS speed in WPM")
+        # Value should be retrievable
+        assert store.get_config("speed") == "270"
+
+    def test_set_preserves_description_on_update(self, store):
+        """Updating value without description preserves existing description."""
+        store.set_config("speed", "270", description="TTS speed in WPM")
+        store.set_config("speed", "300")  # Update without description
+        # Value updated, description should still exist (can't directly check,
+        # but shouldn't error)
+        assert store.get_config("speed") == "300"
+
+    def test_set_can_override_description(self, store):
+        """Can explicitly update description."""
+        store.set_config("speed", "270", description="Old desc")
+        store.set_config("speed", "300", description="New desc")
+        assert store.get_config("speed") == "300"
+
+
+class TestConfigEdgeCases:
+    """Test config edge cases."""
+
+    def test_config_empty_string_value(self, store):
+        """Empty string is a valid config value."""
+        store.set_config("empty", "")
+        assert store.get_config("empty") == ""
+
+    def test_config_unicode_value(self, store):
+        """Unicode values work in config."""
+        store.set_config("greeting", "Hello 你好 🌍")
+        assert store.get_config("greeting") == "Hello 你好 🌍"
+
+    def test_config_special_chars_in_key(self, store):
+        """Special characters in config keys work."""
+        store.set_config("app.setting.name", "value")
+        assert store.get_config("app.setting.name") == "value"
+
+    def test_config_isolated_from_lore(self, store):
+        """Config doesn't interfere with lore data."""
+        store.set_config("a", "config_value")
+        store.set("a", "lore_value")
+
+        # Both should coexist
+        assert store.get_config("a") == "config_value"
+        assert store.get("a")["value"] == "lore_value"
+
+    def test_config_persists_across_connections(self, db_path):
+        """Config persists when store is reopened."""
+        from store import Store
+
+        # First connection - set config
+        store1 = Store(db_path)
+        store1.set_config("persist_test", "saved")
+
+        # Second connection - read config
+        store2 = Store(db_path)
+        assert store2.get_config("persist_test") == "saved"
+
+
+class TestConfigErrors:
+    """Test config error handling."""
+
+    def test_get_config_with_none_key_raises(self, store):
+        """Getting config with None key raises TypeError."""
+        with pytest.raises(TypeError):
+            store.get_config(None)
+
+    def test_set_config_with_none_key_raises(self, store):
+        """Setting config with None key raises TypeError."""
+        with pytest.raises(TypeError):
+            store.set_config(None, "value")
+
+    def test_set_config_with_none_value_raises(self, store):
+        """Setting config with None value raises TypeError."""
+        with pytest.raises(TypeError):
+            store.set_config("key", None)

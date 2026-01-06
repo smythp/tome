@@ -608,3 +608,81 @@ class Store:
             return cursor.fetchone()
         finally:
             conn.close()
+
+    # =========================================================================
+    # Config Operations
+    # =========================================================================
+
+    def _init_config_table(self, cursor) -> None:
+        """Create config table if it doesn't exist."""
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS config (
+                key TEXT PRIMARY KEY,
+                value TEXT,
+                description TEXT
+            )
+        """)
+
+    def get_config(self, key: str, default: str = None) -> Optional[str]:
+        """Get a configuration value.
+
+        Args:
+            key: The config key to look up
+            default: Value to return if key not found
+
+        Returns:
+            The config value, or default if not found
+        """
+        if not isinstance(key, str):
+            raise TypeError(f"key must be a string, got {type(key).__name__}")
+
+        conn, cursor = self._connect()
+        try:
+            # Ensure config table exists
+            self._init_config_table(cursor)
+            conn.commit()
+
+            cursor.execute("SELECT value FROM config WHERE key = ?", (key,))
+            result = cursor.fetchone()
+            if result:
+                return result["value"]
+            return default
+        finally:
+            conn.close()
+
+    def set_config(self, key: str, value: str, description: str = None) -> None:
+        """Set a configuration value.
+
+        Args:
+            key: The config key
+            value: The value to store
+            description: Optional description of this config
+
+        Raises:
+            TypeError: If key or value is not a string
+        """
+        if not isinstance(key, str):
+            raise TypeError(f"key must be a string, got {type(key).__name__}")
+        if not isinstance(value, str):
+            raise TypeError(f"value must be a string, got {type(value).__name__}")
+
+        conn, cursor = self._connect()
+        try:
+            # Ensure config table exists
+            self._init_config_table(cursor)
+
+            # Preserve existing description if not provided
+            if description is None:
+                cursor.execute("SELECT description FROM config WHERE key = ?", (key,))
+                result = cursor.fetchone()
+                if result:
+                    description = result["description"]
+
+            # Upsert
+            cursor.execute("""
+                INSERT OR REPLACE INTO config (key, value, description)
+                VALUES (?, ?, ?)
+            """, (key, value, description))
+            conn.commit()
+        finally:
+            conn.close()
