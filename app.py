@@ -31,9 +31,6 @@ import pyperclip
 class App:
     """Main application - wires RSPs and manages state."""
 
-    # Double-tap detection window (seconds)
-    REPEAT_WINDOW = 0.3
-
     def __init__(self, db_path: str = "lore.db"):
         # Core RSPs
         self.store = Store(db_path)
@@ -42,9 +39,8 @@ class App:
         self.mode = Mode(self.teller, self.store, self.mark)
         self.listener = PynputListener()
 
-        # Double-tap tracking (reset on mode change)
+        # Consecutive key tracking (reset on mode change)
         self._last_key: str | None = None
-        self._last_time: float = 0
         self._repeat_count: int = 0
 
         # Register mode switch hook to reset repeat tracking
@@ -57,31 +53,29 @@ class App:
         self._original_switch(name, silent=silent)
 
     def _reset_repeat(self) -> None:
-        """Reset double-tap tracking."""
+        """Reset consecutive key tracking."""
         self._last_key = None
-        self._last_time = 0
         self._repeat_count = 0
 
     def _track_repeat(self, event: KeyEvent) -> int:
         """
-        Track rapid key repeats, return repeat count.
+        Track consecutive key presses, return repeat count.
 
-        Returns 1 for single press, 2 for double, etc.
+        Returns 1 for first press, 2 for second consecutive, etc.
+        No time window - just consecutive same-key presses.
+        Reset happens on mode switch or different key.
         """
         if event.event_type != EventType.PRESS:
             return 1
 
         # Get key identity (char or special key name)
         key_id = event.char if event.char else str(event.key)
-        now = time.time()
 
-        if key_id == self._last_key and (now - self._last_time) < self.REPEAT_WINDOW:
+        if key_id == self._last_key:
             self._repeat_count += 1
         else:
             self._repeat_count = 1
-
-        self._last_key = key_id
-        self._last_time = now
+            self._last_key = key_id
 
         return self._repeat_count
 
