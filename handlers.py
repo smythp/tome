@@ -4,8 +4,8 @@ Mode handlers for Tome of Lore.
 Each handler is a function: (event: KeyEvent, context: ModeContext) -> None
 """
 
+import os
 import re
-import sys
 import webbrowser
 from typing import Callable, Any
 
@@ -16,6 +16,12 @@ from mode import ModeContext
 # =============================================================================
 # Helpers
 # =============================================================================
+
+def quit_app(ctx: ModeContext) -> None:
+    """Speak 'quit' and exit the application."""
+    ctx.teller.speak("quit")
+    os._exit(0)  # Force exit - sys.exit doesn't kill listener thread
+
 
 def status(value: bool) -> str:
     """Format boolean as 'on' or 'off'."""
@@ -263,7 +269,7 @@ def browse_handler(event: KeyEvent, ctx: ModeContext) -> None:
     # Open in browser and exit
     webbrowser.open(url)
     ctx.teller.speak(f"Opening {value}")
-    sys.exit(0)
+    quit_app(ctx)
 
 
 # =============================================================================
@@ -524,11 +530,11 @@ def history_handler(event: KeyEvent, ctx: ModeContext) -> None:
                 if is_valid_url(value):
                     webbrowser.open(value)
                     ctx.teller.speak("Opening in browser")
-                    sys.exit(0)
+                    quit_app(ctx)
                 elif looks_like_domain(value):
                     webbrowser.open("http://" + value)
                     ctx.teller.speak("Adding http protocol. Opening in browser")
-                    sys.exit(0)
+                    quit_app(ctx)
                 else:
                     ctx.teller.speak("Not a valid URL")
         elif char == "j":
@@ -630,6 +636,20 @@ def list_handler(event: KeyEvent, ctx: ModeContext) -> None:
     from listener import Modifier
 
     state = ctx.get_state()
+
+    # Check for setup data smuggled via mark.last_retrieved (same pattern as history)
+    last_retrieved = ctx.mark.last_retrieved if hasattr(ctx, 'mark') and ctx.mark else None
+    setup = last_retrieved.get("_list_setup") if last_retrieved and isinstance(last_retrieved, dict) else None
+    if setup and "items" not in state:
+        state["list_id"] = setup.get("list_id")
+        state["key"] = setup.get("key")
+        state["buffer_id"] = setup.get("buffer_id")
+        state["items"] = setup.get("items", [])
+        state["current_index"] = setup.get("current_index", 0)
+        # Clear setup flag
+        if hasattr(ctx, 'mark') and ctx.mark:
+            ctx.mark.last_retrieved = {"value": None, "key": setup.get("key"), "buffer_id": setup.get("buffer_id")}
+
     items = state.get("items", [])
 
     def exit_list():
@@ -823,22 +843,23 @@ def _enter_list_mode(key: str, buffer_id: int, ctx: ModeContext) -> bool:
     # Get list items
     items = ctx.store.list_items(list_id)
 
-    # Switch to list mode
-    ctx.switch("list")
-
-    # Setup list state
-    list_state = ctx.get_state()
-    list_state["list_id"] = list_id
-    list_state["key"] = key
-    list_state["buffer_id"] = buffer_id
-    list_state["items"] = items
-    list_state["current_index"] = len(items) - 1 if items else 0
-
     if items:
         ctx.teller.speak(f"Item 1 of {len(items)}: {items[-1].get('value', '')}")
     else:
         ctx.teller.speak("Empty list")
 
+    # Store setup data in mark for list_handler to pick up (same pattern as history)
+    ctx.mark.last_retrieved = {
+        "_list_setup": {
+            "list_id": list_id,
+            "key": key,
+            "buffer_id": buffer_id,
+            "items": items,
+            "current_index": len(items) - 1 if items else 0,
+        }
+    }
+
+    ctx.switch("list")
     return True
 
 
@@ -945,18 +966,18 @@ def read_handler(event: KeyEvent, ctx: ModeContext) -> None:
             if char == "c":
                 pyperclip.copy(last["value"])
                 ctx.teller.speak("Copied to clipboard")
-                sys.exit(0)
+                quit_app(ctx)
 
             elif char == "b":
                 value = last["value"]
                 if is_valid_url(value):
                     webbrowser.open(value)
                     ctx.teller.speak("Opening in browser")
-                    sys.exit(0)
+                    quit_app(ctx)
                 elif looks_like_domain(value):
                     webbrowser.open("http://" + value)
                     ctx.teller.speak("Adding http protocol. Opening in browser")
-                    sys.exit(0)
+                    quit_app(ctx)
                 else:
                     ctx.teller.speak("Not a valid URL")
                 return
@@ -980,7 +1001,7 @@ def read_handler(event: KeyEvent, ctx: ModeContext) -> None:
                     data = data.strip()
                 ctx.store.set(last["key"], data, buffer_id=last.get("buffer_id", ctx.mark.buffer_id))
                 ctx.teller.speak(f"Wrote {last['key']} with clipboard data")
-                sys.exit(0)
+                quit_app(ctx)
 
             elif char == "g":
                 # Create buffer at last key
@@ -1068,13 +1089,13 @@ def read_handler(event: KeyEvent, ctx: ModeContext) -> None:
                 elif looks_like_domain(value):
                     webbrowser.open("http://" + value)
                 ctx.teller.speak("Opening in browser")
-                sys.exit(0)
+                quit_app(ctx)
             else:
                 pyperclip.copy(value)
                 ctx.teller.speak("Copied to clipboard")
-                sys.exit(0)
+                quit_app(ctx)
         else:
             # Default: copy
             pyperclip.copy(value)
             ctx.teller.speak("Copied to clipboard")
-            sys.exit(0)
+            quit_app(ctx)

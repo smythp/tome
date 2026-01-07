@@ -620,8 +620,8 @@ class TestBrowseHandler:
         opened_urls = []
         monkeypatch.setattr(webbrowser, "open", lambda url: opened_urls.append(url))
 
-        # Mock sys.exit to not actually exit
-        monkeypatch.setattr("sys.exit", lambda code: None)
+        # Mock os._exit to not actually exit (quit_app uses os._exit)
+        monkeypatch.setattr("os._exit", lambda code: None)
 
         ctx = mock_context_with_mark
         ctx.store.get = MagicMock(return_value={"value": "https://example.com"})
@@ -637,7 +637,7 @@ class TestBrowseHandler:
         import webbrowser
         opened_urls = []
         monkeypatch.setattr(webbrowser, "open", lambda url: opened_urls.append(url))
-        monkeypatch.setattr("sys.exit", lambda code: None)
+        monkeypatch.setattr("os._exit", lambda code: None)
 
         ctx = mock_context_with_mark
         ctx.store.get = MagicMock(return_value={"value": "example.com"})
@@ -1119,7 +1119,7 @@ class TestReadHandler:
         """Second press copies value."""
         copied = []
         monkeypatch.setattr("pyperclip.copy", lambda x: copied.append(x))
-        monkeypatch.setattr("sys.exit", lambda x: None)
+        monkeypatch.setattr("os._exit", lambda x: None)
 
         ctx = mock_context_for_read
         ctx.repeat_count = 2
@@ -1155,7 +1155,7 @@ class TestReadHandler:
         """Ctrl+C copies last retrieved value."""
         copied = []
         monkeypatch.setattr("pyperclip.copy", lambda x: copied.append(x))
-        monkeypatch.setattr("sys.exit", lambda x: None)
+        monkeypatch.setattr("os._exit", lambda x: None)
 
         ctx = mock_context_for_read
         ctx.mark.last_retrieved = {"key": "a", "buffer_id": 1, "value": "saved value"}
@@ -1168,7 +1168,7 @@ class TestReadHandler:
     def test_ctrl_y_writes_clipboard(self, mock_context_for_read, monkeypatch):
         """Ctrl+Y writes clipboard to last key."""
         monkeypatch.setattr("pyperclip.paste", lambda: "pasted")
-        monkeypatch.setattr("sys.exit", lambda x: None)
+        monkeypatch.setattr("os._exit", lambda x: None)
 
         ctx = mock_context_for_read
         ctx.mark.last_retrieved = {"key": "a", "buffer_id": 1, "value": None}
@@ -1240,7 +1240,7 @@ class TestReadHandler:
         """Auto action opens URLs."""
         opened = []
         monkeypatch.setattr("webbrowser.open", lambda x: opened.append(x))
-        monkeypatch.setattr("sys.exit", lambda x: None)
+        monkeypatch.setattr("os._exit", lambda x: None)
 
         ctx = mock_context_for_read
         ctx.repeat_count = 2

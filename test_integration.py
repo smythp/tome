@@ -2,7 +2,16 @@
 """Integration test - simulates a user session."""
 
 import sys
+import os
 sys.stdout.reconfigure(line_buffering=True)  # Flush on newline
+
+# Mock os._exit to prevent actual exit during test
+_exit_called = False
+def mock_exit(code):
+    global _exit_called
+    _exit_called = True
+    print(f"(os._exit({code}) called - suppressed)")
+os._exit = mock_exit
 
 from store import Store
 from teller import get_handler
@@ -144,19 +153,46 @@ print(f"Current mode: {mode.current}")
 # Test 8: List mode
 print("\n--- Test 8: List mode ---")
 reset_repeat()
-# Create a list
-list_id = store.create_list("mylist")
+# Create a list at key 'l'
+list_id = store.create_list("l", buffer_id=1)
 store.append_to_list(list_id, "item one")
 store.append_to_list(list_id, "item two")
 store.append_to_list(list_id, "item three")
-print("Created list with 3 items at 'mylist'")
+print("Created list with 3 items at key 'l'")
 
-# Read it (first press)
-print("Pressing 'm':")
-# Need to actually create the entry first
-store.set("m", "", buffer_id=1)  # dummy
-# Actually let's use the list_id directly via mark
-print("(Skipping list test - needs proper setup)")
+# First press - reads list info
+print("Pressing 'l' (first - reads list info):")
+press(char='l')
+
+# Second press - enters list mode
+print("Pressing 'l' again (enters list mode):")
+press(char='l')
+print(f"Current mode: {mode.current}")
+
+# Navigate - next item
+print("Pressing 'n' (next item):")
+press(char='n')
+
+# Navigate - previous item
+print("Pressing 'p' (previous item):")
+press(char='p')
+
+# Jump to end
+print("Pressing '.' (jump to end):")
+press(char='.')
+
+# Read current item
+print("Pressing Enter (read current):")
+press(key=SpecialKey.ENTER)
+
+# Help
+print("Pressing '?' (help):")
+press(char='?')
+
+# Exit list mode
+print("Pressing Backspace (exit list mode):")
+press(key=SpecialKey.BACKSPACE)
+print(f"Current mode: {mode.current}")
 
 # Test 9: Buffer navigation
 print("\n--- Test 9: Buffer navigation ---")
