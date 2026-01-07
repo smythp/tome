@@ -162,6 +162,7 @@ class PynputListener:
             self._listener = keyboard.Listener(
                 on_press=self._on_press,
                 on_release=self._on_release,
+                suppress=True,  # Prevent keys from passing through to other apps
             )
             self._listener.start()
 

@@ -31,10 +31,10 @@ import pyperclip
 class App:
     """Main application - wires RSPs and manages state."""
 
-    def __init__(self, db_path: str = "lore.db"):
+    def __init__(self, db_path: str = "lore.db", teller_mode: str = "espeak"):
         # Core RSPs
         self.store = Store(db_path)
-        self.teller = get_teller("espeak")
+        self.teller = get_teller(teller_mode)
         self.mark = Mark(self.store)
         self.mode = Mode(self.teller, self.store, self.mark)
         self.listener = PynputListener()
@@ -81,9 +81,18 @@ class App:
 
     def _on_key(self, event: KeyEvent) -> None:
         """Handle keyboard event - route to Mode."""
+        from listener import Modifier
+
         # Only handle press events (not release)
         if event.event_type != EventType.PRESS:
             return
+
+        # Privileged quit handling - 'q' or Ctrl+Q always exits
+        if event.char == 'q':
+            self.teller.speak("Goodbye")
+            self.shutdown()
+            import os
+            os._exit(0)  # Force exit, sys.exit doesn't kill threads
 
         repeat = self._track_repeat(event)
         self.mode.handle(event, repeat_count=repeat)
@@ -116,29 +125,51 @@ class App:
 
     def _register_modes(self) -> None:
         """Register all mode handlers."""
-        # Import handlers
         from handlers import (
             options_handler,
-            # confirm_handler,
-            # clipboard_handler,
-            # browse_handler,
-            # history_handler,
-            # list_handler,
-            # read_handler,
+            confirm_handler,
+            clipboard_handler,
+            browse_handler,
+            history_handler,
+            list_handler,
+            read_handler,
         )
 
-        # Register modes
+        # Register all modes
+        self.mode.register(
+            "read",
+            read_handler,
+            message="Read from tome",
+        )
         self.mode.register(
             "options",
             options_handler,
             message="Options: Press s for strip input, d for debug mode, a for default action",
         )
-
-        # Placeholder for read mode (required as home mode)
         self.mode.register(
-            "read",
-            lambda event, ctx: None,  # TODO: replace with read_handler
-            message="Read from tome",
+            "confirm",
+            confirm_handler,
+            message=None,  # Dynamic message set when entering
+        )
+        self.mode.register(
+            "clipboard",
+            clipboard_handler,
+            message="Store from clipboard",
+        )
+        self.mode.register(
+            "browse",
+            browse_handler,
+            message="Browse URL",
+        )
+        self.mode.register(
+            "history",
+            history_handler,
+            message="History mode",
+        )
+        self.mode.register(
+            "list",
+            list_handler,
+            message="List mode",
         )
 
 
@@ -147,7 +178,14 @@ class App:
 # =============================================================================
 
 def main():
-    app = App()
+    import argparse
+    parser = argparse.ArgumentParser(description="Tome of Lore")
+    parser.add_argument("--text", action="store_true", help="Use text output instead of speech")
+    parser.add_argument("--db", default="lore.db", help="Database file path")
+    args = parser.parse_args()
+
+    teller_mode = "text" if args.text else "espeak"
+    app = App(db_path=args.db, teller_mode=teller_mode)
     app.run()
 
 

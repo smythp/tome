@@ -452,6 +452,20 @@ def history_handler(event: KeyEvent, ctx: ModeContext) -> None:
     import pyperclip
 
     state = ctx.get_state()
+
+    # Check if we need to initialize from setup data
+    last_retrieved = getattr(ctx.mark, 'last_retrieved', None) if hasattr(ctx, 'mark') else None
+    setup = last_retrieved.get("_history_setup") if last_retrieved and isinstance(last_retrieved, dict) else None
+    if setup and "entries" not in state:
+        state["entries"] = setup.get("entries", [])
+        state["current_index"] = 0
+        state["global_mode"] = False
+        state["key"] = setup.get("key")
+        state["buffer_id"] = setup.get("buffer_id")
+        # Clear setup flag
+        if hasattr(ctx, 'mark') and ctx.mark:
+            ctx.mark.last_retrieved = {"value": None, "key": setup.get("key"), "buffer_id": setup.get("buffer_id")}
+
     entries = state.get("entries", [])
 
     def exit_history():
@@ -766,29 +780,18 @@ def _enter_history_mode(key: str, buffer_id: int, ctx: ModeContext) -> bool:
     # We need to setup history mode's state, so switch first then setup
     # Actually, Mode.switch will give us a fresh state for history mode
 
-    # Store info for after switch
+    ctx.teller.speak(f"History for {key}, {len(entries)} entries. Most recent: {entries[0].get('value', '')}")
+
+    # Store setup data in mark for history_handler to pick up
     ctx.mark.last_retrieved = {
-        "history_setup": {
+        "_history_setup": {
             "key": key,
             "buffer_id": buffer_id,
             "entries": entries,
         }
     }
 
-    ctx.teller.speak(f"History for {key}, {len(entries)} entries. Most recent: {entries[0].get('value', '')}")
     ctx.switch("history")
-
-    # Now setup history state
-    history_state = ctx.get_state()
-    setup = ctx.mark.last_retrieved.get("history_setup", {})
-    history_state["entries"] = setup.get("entries", [])
-    history_state["current_index"] = 0
-    history_state["global_mode"] = False
-    history_state["key"] = setup.get("key")
-    history_state["buffer_id"] = setup.get("buffer_id")
-
-    # Clear the temp storage
-    ctx.mark.last_retrieved = {"value": None, "key": key, "buffer_id": buffer_id}
 
     return True
 
@@ -849,9 +852,13 @@ def _try_enter_buffer(key: str, ctx: ModeContext) -> bool:
     if not entry or entry.get("data_type") != TYPE_BUFFER:
         return False
 
-    # It's a buffer - enter it
-    buffer_id = entry.get("id")
-    buffer_name = entry.get("value", key)
+    # It's a buffer - the buffer ID is stored in the value field
+    try:
+        buffer_id = int(entry.get("value"))
+    except (ValueError, TypeError):
+        # Fallback to entry ID if value isn't a valid buffer ID
+        buffer_id = entry.get("id")
+    buffer_name = key  # Use key as name
 
     ctx.mark.into(buffer_id)
     ctx.teller.speak(f"Entering {buffer_name}")
