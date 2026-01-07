@@ -72,13 +72,26 @@ class Mark:
         Human-readable breadcrumb from root to current position.
 
         Returns list of entry content/names from root to current buffer.
+
+        Raises:
+            RuntimeError: If path traversal exceeds 100,000 iterations
+                         (indicates Store bug or malicious implementation)
         """
         result = []
         current_id = self._buffer_id
+        max_iterations = 100_000
 
         # Walk from current up to root, collecting names
         visited = set()
+        iterations = 0
         while current_id is not None and current_id not in visited:
+            iterations += 1
+            if iterations > max_iterations:
+                raise RuntimeError(
+                    f"Path traversal exceeded {max_iterations} iterations. "
+                    f"This indicates a bug in Store.get() (non-deterministic or pathological data)."
+                )
+
             visited.add(current_id)
             entry = self._store.get(current_id)
             if entry is None:

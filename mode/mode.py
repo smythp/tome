@@ -55,19 +55,23 @@ class ModeContext:
     Provides access to:
     - teller: TTS output
     - store: Data storage
+    - mark: Navigation state (buffer position, stack)
     - switch: Callable to change modes
     - back: Callable to return to previous mode
     - current_mode: Name of the current mode
     - previous_mode: Name of the previous mode (or None)
     - get_state: Callable to get per-mode state dict
+    - repeat_count: Number of times this key was pressed rapidly (1=single, 2=double, etc.)
     """
     teller: Teller
     store: Any  # Actually store.store.Store, typed as Any to avoid circular import
+    mark: Any  # Actually mark.mark.Mark, typed as Any to avoid circular import
     switch: Callable[..., None]  # switch(mode_name, *, silent=False)
     back: Callable[[], None]  # Return to previous mode
     current_mode: str
     previous_mode: str | None
     get_state: Callable[[], dict]
+    repeat_count: int = 1  # Per-event, passed through handle()
 
 
 @dataclass
@@ -93,16 +97,18 @@ class Mode:
     - Silent transitions (suppress_message)
     """
 
-    def __init__(self, teller: Teller, store: Any):
+    def __init__(self, teller: Teller, store: Any, mark: Any = None):
         """
         Create Mode instance.
 
         Args:
             teller: TTS output (Teller protocol)
             store: Data storage (store.store.Store)
+            mark: Navigation state (mark.mark.Mark), optional
         """
         self._teller = teller
         self._store = store
+        self._mark = mark
         self._current: str | None = None
         self._previous: str | None = None
         self._modes: dict[str, ModeConfig] = {}
@@ -215,12 +221,13 @@ class Mode:
         if self._previous is not None:
             self.switch(self._previous)
 
-    def handle(self, event: KeyEvent) -> None:
+    def handle(self, event: KeyEvent, repeat_count: int = 1) -> None:
         """
         Route an event to the current mode's handler.
 
         Args:
             event: KeyEvent to handle
+            repeat_count: Number of rapid repeats of this key (1=single, 2=double, etc.)
 
         Raises:
             TypeError: If event doesn't look like a KeyEvent
@@ -248,11 +255,13 @@ class Mode:
         context = ModeContext(
             teller=self._teller,
             store=self._store,
+            mark=self._mark,
             switch=self.switch,
             back=self.back,
             current_mode=current_mode_name,
             previous_mode=self._previous,
             get_state=lambda: self._state[current_mode_name],
+            repeat_count=repeat_count,
         )
 
         try:
