@@ -7,11 +7,15 @@ from unittest.mock import MagicMock, call
 
 from listener import KeyEvent, SpecialKey, EventType
 from mode import ModeContext
+from listener import Modifier
 from handlers import (
     options_handler,
     confirm_handler,
     clipboard_handler,
     browse_handler,
+    history_handler,
+    list_handler,
+    read_handler,
     register_confirm_action,
     CONFIRM_ACTIONS,
     status,
@@ -65,14 +69,19 @@ def mock_context(mock_store, mock_teller):
     return ctx
 
 
-def make_event(char=None, key=None):
+def make_event(char=None, key=None, modifiers=None):
     """Helper to create KeyEvent."""
     return KeyEvent(
         char=char,
         key=key,
-        modifiers=frozenset(),
+        modifiers=frozenset(modifiers or []),
         event_type=EventType.PRESS,
     )
+
+
+def make_ctrl_event(char):
+    """Helper to create KeyEvent with Ctrl modifier."""
+    return make_event(char=char, modifiers=[Modifier.CTRL])
 
 
 # =============================================================================
@@ -668,3 +677,577 @@ class TestBrowseHandler:
 
         ctx.store.get.assert_not_called()
         ctx.back.assert_not_called()
+
+
+# =============================================================================
+# History Handler Tests
+# =============================================================================
+
+@pytest.fixture
+def mock_context_for_history(mock_store, mock_teller):
+    """Create context with state for history mode."""
+    ctx = MagicMock(spec=ModeContext)
+    ctx.store = mock_store
+    ctx.teller = mock_teller
+    ctx.back = MagicMock()
+    ctx.switch = MagicMock()
+
+    # Real state dict with history entries
+    state = {
+        "entries": [
+            {"id": 1, "value": "newest", "deleted": 0, "datetime": "2025-01-01 12:00:00"},
+            {"id": 2, "value": "middle", "deleted": 0, "datetime": "2025-01-01 11:00:00"},
+            {"id": 3, "value": "oldest", "deleted": 1, "datetime": "2025-01-01 10:00:00"},
+        ],
+        "current_index": 0,
+        "global_mode": False,
+        "key": "a",
+        "buffer_id": 1,
+    }
+    ctx.get_state = MagicMock(return_value=state)
+    ctx._state = state
+
+    return ctx
+
+
+class TestHistoryHandler:
+    """Test history mode handler."""
+
+    def test_escape_exits(self, mock_context_for_history):
+        """Escape clears state and exits."""
+        ctx = mock_context_for_history
+        event = make_event(key=SpecialKey.ESCAPE)
+
+        history_handler(event, ctx)
+
+        ctx.back.assert_called_once()
+
+    def test_up_navigates_previous(self, mock_context_for_history):
+        """Up arrow navigates to older entry."""
+        ctx = mock_context_for_history
+        event = make_event(key=SpecialKey.UP)
+
+        history_handler(event, ctx)
+
+        assert ctx._state["current_index"] == 1
+        assert "middle" in ctx.teller.spoken[0]
+
+    def test_down_at_newest_announces_boundary(self, mock_context_for_history):
+        """Down at newest entry announces boundary."""
+        ctx = mock_context_for_history
+        ctx._state["current_index"] = 0
+        event = make_event(key=SpecialKey.DOWN)
+
+        history_handler(event, ctx)
+
+        assert "newest" in ctx.teller.spoken[0].lower()
+
+    def test_ctrl_p_navigates_previous(self, mock_context_for_history):
+        """Ctrl+P navigates to older entry."""
+        ctx = mock_context_for_history
+        event = make_ctrl_event("p")
+
+        history_handler(event, ctx)
+
+        assert ctx._state["current_index"] == 1
+
+    def test_ctrl_n_navigates_next(self, mock_context_for_history):
+        """Ctrl+N navigates to newer entry."""
+        ctx = mock_context_for_history
+        ctx._state["current_index"] = 1
+        event = make_ctrl_event("n")
+
+        history_handler(event, ctx)
+
+        assert ctx._state["current_index"] == 0
+
+    def test_delete_marks_entry_deleted(self, mock_context_for_history):
+        """Delete key soft-deletes current entry."""
+        ctx = mock_context_for_history
+        ctx.store.delete_entry = MagicMock(return_value=True)
+        event = make_event(key=SpecialKey.DELETE)
+
+        history_handler(event, ctx)
+
+        ctx.store.delete_entry.assert_called_once_with(1)
+        assert ctx._state["entries"][0]["deleted"] == 1
+
+    def test_delete_already_deleted_announces(self, mock_context_for_history):
+        """Delete on already-deleted entry announces it."""
+        ctx = mock_context_for_history
+        ctx._state["current_index"] = 2  # The deleted one
+        event = make_event(key=SpecialKey.DELETE)
+
+        history_handler(event, ctx)
+
+        assert "already deleted" in ctx.teller.spoken[0].lower()
+
+    def test_ctrl_c_copies_to_clipboard(self, mock_context_for_history, monkeypatch):
+        """Ctrl+C copies current entry to clipboard."""
+        copied = []
+        monkeypatch.setattr("pyperclip.copy", lambda x: copied.append(x))
+
+        ctx = mock_context_for_history
+        event = make_ctrl_event("c")
+
+        history_handler(event, ctx)
+
+        assert "newest" in copied
+        assert "Copied" in ctx.teller.spoken[0]
+
+    def test_ctrl_t_reads_timestamp(self, mock_context_for_history):
+        """Ctrl+T reads timestamp of current entry."""
+        ctx = mock_context_for_history
+        event = make_ctrl_event("t")
+
+        history_handler(event, ctx)
+
+        assert "2025-01-01" in ctx.teller.spoken[0]
+
+    def test_regular_char_exits(self, mock_context_for_history):
+        """Regular character exits history mode."""
+        ctx = mock_context_for_history
+        event = make_event(char="x")
+
+        history_handler(event, ctx)
+
+        ctx.back.assert_called_once()
+
+    def test_global_mode_formatting(self, mock_context_for_history):
+        """Global mode includes buffer/key in output."""
+        ctx = mock_context_for_history
+        ctx._state["global_mode"] = True
+        ctx._state["entries"][0]["key"] = "a"
+        ctx._state["entries"][0]["buffer_id"] = 1
+        event = make_event(key=SpecialKey.UP)
+
+        history_handler(event, ctx)
+
+        # Should mention buffer in global mode
+        spoken = " ".join(ctx.teller.spoken)
+        assert "Buffer" in spoken or "buffer" in spoken.lower()
+
+
+# =============================================================================
+# List Handler Tests
+# =============================================================================
+
+@pytest.fixture
+def mock_context_for_list(mock_store, mock_teller):
+    """Create context with state for list mode."""
+    ctx = MagicMock(spec=ModeContext)
+    ctx.store = mock_store
+    ctx.teller = mock_teller
+    ctx.back = MagicMock()
+    ctx.switch = MagicMock()
+
+    # Real state dict with list items
+    # Items ordered by internal index (0=oldest, last=newest/item1)
+    state = {
+        "list_id": 100,
+        "key": "l",
+        "buffer_id": 1,
+        "items": [
+            {"id": 1, "value": "oldest (item 3)"},
+            {"id": 2, "value": "middle (item 2)"},
+            {"id": 3, "value": "newest (item 1)"},
+        ],
+        "current_index": 2,  # Start at item 1 (newest)
+    }
+    ctx.get_state = MagicMock(return_value=state)
+    ctx._state = state
+
+    return ctx
+
+
+class TestListHandler:
+    """Test list mode handler."""
+
+    def test_escape_exits(self, mock_context_for_list):
+        """Escape exits list mode."""
+        ctx = mock_context_for_list
+        event = make_event(key=SpecialKey.ESCAPE)
+
+        list_handler(event, ctx)
+
+        ctx.back.assert_called_once()
+
+    def test_backspace_exits(self, mock_context_for_list):
+        """Backspace exits list mode."""
+        ctx = mock_context_for_list
+        event = make_event(key=SpecialKey.BACKSPACE)
+
+        list_handler(event, ctx)
+
+        ctx.back.assert_called_once()
+
+    def test_up_moves_toward_item_1(self, mock_context_for_list):
+        """Up arrow moves toward item 1 (higher internal index)."""
+        ctx = mock_context_for_list
+        ctx._state["current_index"] = 1  # At middle
+        event = make_event(key=SpecialKey.UP)
+
+        list_handler(event, ctx)
+
+        # Should move toward item 1 (higher internal index)
+        assert ctx._state["current_index"] == 2
+
+    def test_down_moves_away_from_item_1(self, mock_context_for_list):
+        """Down arrow moves away from item 1 (lower internal index)."""
+        ctx = mock_context_for_list
+        ctx._state["current_index"] = 2  # At item 1
+        event = make_event(key=SpecialKey.DOWN)
+
+        list_handler(event, ctx)
+
+        assert ctx._state["current_index"] == 1
+
+    def test_j_moves_next(self, mock_context_for_list):
+        """'j' key moves to next item (away from item 1)."""
+        ctx = mock_context_for_list
+        ctx._state["current_index"] = 2
+        event = make_event(char="j")
+
+        list_handler(event, ctx)
+
+        assert ctx._state["current_index"] == 1
+
+    def test_k_moves_previous(self, mock_context_for_list):
+        """'k' key moves to previous item (toward item 1)."""
+        ctx = mock_context_for_list
+        ctx._state["current_index"] = 1
+        event = make_event(char="k")
+
+        list_handler(event, ctx)
+
+        assert ctx._state["current_index"] == 2
+
+    def test_comma_jumps_to_top(self, mock_context_for_list):
+        """Comma jumps to item 1."""
+        ctx = mock_context_for_list
+        ctx._state["current_index"] = 0  # At oldest
+        event = make_event(char=",")
+
+        list_handler(event, ctx)
+
+        assert ctx._state["current_index"] == 2  # Now at item 1
+
+    def test_period_jumps_to_end(self, mock_context_for_list):
+        """Period jumps to last item (highest number)."""
+        ctx = mock_context_for_list
+        ctx._state["current_index"] = 2  # At item 1
+        event = make_event(char=".")
+
+        list_handler(event, ctx)
+
+        assert ctx._state["current_index"] == 0  # Now at oldest
+
+    def test_enter_reads_current_item(self, mock_context_for_list):
+        """Enter reads current item."""
+        ctx = mock_context_for_list
+        event = make_event(key=SpecialKey.ENTER)
+
+        list_handler(event, ctx)
+
+        assert "Item 1" in ctx.teller.spoken[0]
+        assert "newest" in ctx.teller.spoken[0]
+
+    def test_delete_removes_item(self, mock_context_for_list):
+        """Delete removes current item."""
+        ctx = mock_context_for_list
+        ctx.store.delete_entry = MagicMock(return_value=True)
+        event = make_event(key=SpecialKey.DELETE)
+
+        list_handler(event, ctx)
+
+        ctx.store.delete_entry.assert_called_once_with(3)
+        assert len(ctx._state["items"]) == 2
+        assert "Deleted" in ctx.teller.spoken[0]
+
+    def test_a_appends_from_clipboard(self, mock_context_for_list, monkeypatch):
+        """'a' appends clipboard content to list."""
+        monkeypatch.setattr("pyperclip.paste", lambda: "new item")
+
+        ctx = mock_context_for_list
+        ctx.store.append_to_list = MagicMock()
+        ctx.store.list_items = MagicMock(return_value=[
+            {"id": 1, "value": "oldest"},
+            {"id": 2, "value": "middle"},
+            {"id": 3, "value": "newest"},
+            {"id": 4, "value": "new item"},
+        ])
+        event = make_event(char="a")
+
+        list_handler(event, ctx)
+
+        ctx.store.append_to_list.assert_called_once_with(100, "new item")
+        assert "Added" in ctx.teller.spoken[0]
+
+    def test_a_empty_clipboard_announces(self, mock_context_for_list, monkeypatch):
+        """'a' with empty clipboard announces error."""
+        monkeypatch.setattr("pyperclip.paste", lambda: "")
+
+        ctx = mock_context_for_list
+        event = make_event(char="a")
+
+        list_handler(event, ctx)
+
+        assert "empty" in ctx.teller.spoken[0].lower()
+
+    def test_help_shows_commands(self, mock_context_for_list):
+        """'?' shows help."""
+        ctx = mock_context_for_list
+        event = make_event(char="?")
+
+        list_handler(event, ctx)
+
+        assert "add" in ctx.teller.spoken[0].lower()
+
+    def test_ctrl_p_moves_toward_item_1(self, mock_context_for_list):
+        """Ctrl+P moves toward item 1."""
+        ctx = mock_context_for_list
+        ctx._state["current_index"] = 1
+        event = make_ctrl_event("p")
+
+        list_handler(event, ctx)
+
+        assert ctx._state["current_index"] == 2
+
+    def test_ctrl_n_moves_away_from_item_1(self, mock_context_for_list):
+        """Ctrl+N moves away from item 1."""
+        ctx = mock_context_for_list
+        ctx._state["current_index"] = 2
+        event = make_ctrl_event("n")
+
+        list_handler(event, ctx)
+
+        assert ctx._state["current_index"] == 1
+
+
+# =============================================================================
+# Read Handler Tests
+# =============================================================================
+
+@pytest.fixture
+def mock_context_for_read(mock_store, mock_teller):
+    """Create context for read mode with mark."""
+    ctx = MagicMock(spec=ModeContext)
+    ctx.store = mock_store
+    ctx.teller = mock_teller
+    ctx.back = MagicMock()
+    ctx.switch = MagicMock()
+    ctx.get_state = MagicMock(return_value={})
+    ctx.repeat_count = 1
+
+    # Mock mark
+    ctx.mark = MagicMock()
+    ctx.mark.buffer_id = 1
+    ctx.mark.last_retrieved = {}
+    ctx.mark.back = MagicMock(return_value=True)
+    ctx.mark.into = MagicMock()
+
+    return ctx
+
+
+class TestReadHandler:
+    """Test read mode handler."""
+
+    def test_backspace_goes_back(self, mock_context_for_read):
+        """Backspace navigates back."""
+        ctx = mock_context_for_read
+        event = make_event(key=SpecialKey.BACKSPACE)
+
+        read_handler(event, ctx)
+
+        ctx.mark.back.assert_called_once()
+        assert "Back" in ctx.teller.spoken[0]
+
+    def test_backspace_at_root_announces(self, mock_context_for_read):
+        """Backspace at root announces it."""
+        ctx = mock_context_for_read
+        ctx.mark.back = MagicMock(return_value=False)
+        event = make_event(key=SpecialKey.BACKSPACE)
+
+        read_handler(event, ctx)
+
+        assert "root" in ctx.teller.spoken[0].lower()
+
+    def test_delete_no_selection_announces(self, mock_context_for_read):
+        """Delete with no selection announces error."""
+        ctx = mock_context_for_read
+        ctx.mark.last_retrieved = {}
+        event = make_event(key=SpecialKey.DELETE)
+
+        read_handler(event, ctx)
+
+        assert "No register" in ctx.teller.spoken[0]
+
+    def test_delete_removes_entry(self, mock_context_for_read):
+        """Delete soft-deletes the last retrieved entry."""
+        ctx = mock_context_for_read
+        ctx.mark.last_retrieved = {"key": "a", "buffer_id": 1, "value": "test"}
+        ctx.store.get = MagicMock(return_value={"id": 5, "value": "test", "data_type": "value"})
+        ctx.store.delete_entry = MagicMock(return_value=True)
+        event = make_event(key=SpecialKey.DELETE)
+
+        read_handler(event, ctx)
+
+        ctx.store.delete_entry.assert_called_once_with(5)
+        assert "Deleted" in ctx.teller.spoken[0]
+
+    def test_first_press_reads_value(self, mock_context_for_read):
+        """First press of key reads the value."""
+        ctx = mock_context_for_read
+        ctx.store.get = MagicMock(return_value={"value": "hello world", "data_type": "value"})
+        event = make_event(char="a")
+
+        read_handler(event, ctx)
+
+        assert "hello world" in ctx.teller.spoken[0]
+
+    def test_no_data_announces(self, mock_context_for_read):
+        """No data at key announces it."""
+        ctx = mock_context_for_read
+        ctx.store.get = MagicMock(return_value=None)
+        event = make_event(char="x")
+
+        read_handler(event, ctx)
+
+        assert "No data" in ctx.teller.spoken[0]
+
+    def test_second_press_copies(self, mock_context_for_read, monkeypatch):
+        """Second press copies value."""
+        copied = []
+        monkeypatch.setattr("pyperclip.copy", lambda x: copied.append(x))
+        monkeypatch.setattr("sys.exit", lambda x: None)
+
+        ctx = mock_context_for_read
+        ctx.repeat_count = 2
+        ctx.store.get = MagicMock(return_value={"value": "copy me", "data_type": "value"})
+        event = make_event(char="a")
+
+        read_handler(event, ctx)
+
+        assert "copy me" in copied
+        assert "Copied" in ctx.teller.spoken[0]
+
+    def test_ctrl_o_switches_to_options(self, mock_context_for_read):
+        """Ctrl+O switches to options mode."""
+        ctx = mock_context_for_read
+        event = make_ctrl_event("o")
+
+        read_handler(event, ctx)
+
+        ctx.switch.assert_called_once_with("options")
+
+    def test_ctrl_j_reads_clipboard(self, mock_context_for_read, monkeypatch):
+        """Ctrl+J reads clipboard."""
+        monkeypatch.setattr("pyperclip.paste", lambda: "clipboard content")
+
+        ctx = mock_context_for_read
+        event = make_ctrl_event("j")
+
+        read_handler(event, ctx)
+
+        assert "clipboard content" in ctx.teller.spoken[0]
+
+    def test_ctrl_c_copies_last_value(self, mock_context_for_read, monkeypatch):
+        """Ctrl+C copies last retrieved value."""
+        copied = []
+        monkeypatch.setattr("pyperclip.copy", lambda x: copied.append(x))
+        monkeypatch.setattr("sys.exit", lambda x: None)
+
+        ctx = mock_context_for_read
+        ctx.mark.last_retrieved = {"key": "a", "buffer_id": 1, "value": "saved value"}
+        event = make_ctrl_event("c")
+
+        read_handler(event, ctx)
+
+        assert "saved value" in copied
+
+    def test_ctrl_y_writes_clipboard(self, mock_context_for_read, monkeypatch):
+        """Ctrl+Y writes clipboard to last key."""
+        monkeypatch.setattr("pyperclip.paste", lambda: "pasted")
+        monkeypatch.setattr("sys.exit", lambda x: None)
+
+        ctx = mock_context_for_read
+        ctx.mark.last_retrieved = {"key": "a", "buffer_id": 1, "value": None}
+        event = make_ctrl_event("y")
+
+        read_handler(event, ctx)
+
+        ctx.store.set.assert_called_once()
+        assert "Wrote" in ctx.teller.spoken[0]
+
+    def test_buffer_entry_calls_into(self, mock_context_for_read):
+        """Pressing key that is a buffer enters it."""
+        ctx = mock_context_for_read
+        ctx.store.get = MagicMock(return_value={"id": 10, "value": "mybuffer", "data_type": "buffer"})
+        event = make_event(char="b")
+
+        read_handler(event, ctx)
+
+        ctx.mark.into.assert_called_once_with(10)
+        assert "Entering" in ctx.teller.spoken[0]
+
+    def test_list_first_press_announces(self, mock_context_for_read):
+        """First press on list announces info."""
+        ctx = mock_context_for_read
+        ctx.store.get = MagicMock(return_value={"id": 20, "value": None, "data_type": "list"})
+        ctx.store.list_items = MagicMock(return_value=[{"value": "item1"}, {"value": "item2"}])
+        event = make_event(char="l")
+
+        read_handler(event, ctx)
+
+        assert "List with 2 items" in ctx.teller.spoken[0]
+
+    def test_list_second_press_enters_mode(self, mock_context_for_read):
+        """Second press on list enters list mode."""
+        ctx = mock_context_for_read
+        ctx.repeat_count = 2
+        ctx.store.get = MagicMock(return_value={"id": 20, "value": None, "data_type": "list"})
+        ctx.store.list_items = MagicMock(return_value=[{"value": "item1"}])
+        event = make_event(char="l")
+
+        read_handler(event, ctx)
+
+        ctx.switch.assert_called_with("list")
+
+    def test_non_alnum_ignored(self, mock_context_for_read):
+        """Non-alphanumeric keys are ignored."""
+        ctx = mock_context_for_read
+        event = make_event(char="!")
+
+        read_handler(event, ctx)
+
+        ctx.store.get.assert_not_called()
+
+    def test_ctrl_g_creates_buffer(self, mock_context_for_read):
+        """Ctrl+G creates buffer at last key."""
+        ctx = mock_context_for_read
+        ctx.mark.last_retrieved = {"key": "n", "buffer_id": 1, "value": None}
+        ctx.store.get = MagicMock(return_value=None)  # No existing entry
+        ctx.store.create_buffer = MagicMock(return_value=99)
+        event = make_ctrl_event("g")
+
+        read_handler(event, ctx)
+
+        ctx.store.create_buffer.assert_called_once()
+        ctx.mark.into.assert_called_once_with(99)
+        assert "Created buffer" in ctx.teller.spoken[0]
+
+    def test_auto_action_opens_url(self, mock_context_for_read, monkeypatch):
+        """Auto action opens URLs."""
+        opened = []
+        monkeypatch.setattr("webbrowser.open", lambda x: opened.append(x))
+        monkeypatch.setattr("sys.exit", lambda x: None)
+
+        ctx = mock_context_for_read
+        ctx.repeat_count = 2
+        ctx.store._config["default_action"] = "auto"
+        ctx.store.get = MagicMock(return_value={"value": "https://example.com", "data_type": "value"})
+        event = make_event(char="u")
+
+        read_handler(event, ctx)
+
+        assert "https://example.com" in opened
