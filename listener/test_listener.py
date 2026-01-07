@@ -375,6 +375,15 @@ class TestMockListener:
 # PynputListener Tests
 # =============================================================================
 
+@pytest.fixture
+def pynput_listener():
+    """Create PynputListener with guaranteed cleanup."""
+    from listener import PynputListener
+    listener = PynputListener()
+    yield listener
+    listener.stop()  # Always cleanup, even if test fails
+
+
 class TestPynputListener:
     """Tests for PynputListener (real keyboard via pynput)."""
 
@@ -383,36 +392,26 @@ class TestPynputListener:
         from listener import PynputListener
         assert PynputListener is not None
 
-    def test_implements_protocol(self):
+    def test_implements_protocol(self, pynput_listener):
         """PynputListener implements Listener protocol."""
-        from listener import PynputListener, Listener
+        from listener import Listener
 
-        listener = PynputListener()
         # Duck typing check - has required methods
-        assert hasattr(listener, 'start')
-        assert hasattr(listener, 'stop')
-        assert callable(listener.start)
-        assert callable(listener.stop)
+        assert hasattr(pynput_listener, 'start')
+        assert hasattr(pynput_listener, 'stop')
+        assert callable(pynput_listener.start)
+        assert callable(pynput_listener.stop)
 
-    def test_start_twice_raises(self):
+    def test_start_twice_raises(self, pynput_listener):
         """start() called twice without stop() raises an error."""
-        from listener import PynputListener
-
-        listener = PynputListener()
-        listener.start(lambda e: None)
+        pynput_listener.start(lambda e: None)
 
         with pytest.raises(RuntimeError, match="already started"):
-            listener.start(lambda e: None)
+            pynput_listener.start(lambda e: None)
 
-        # Cleanup
-        listener.stop()
-
-    def test_stop_before_start_is_noop(self):
+    def test_stop_before_start_is_noop(self, pynput_listener):
         """stop() before start() is a no-op (idempotent)."""
-        from listener import PynputListener
-
-        listener = PynputListener()
-        listener.stop()  # Should not raise
+        pynput_listener.stop()  # Should not raise
 
 
 class TestPynputListenerModifierTracking:
