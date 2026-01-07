@@ -9,9 +9,17 @@ Wires together the RSP primitives:
 - Listener: Keyboard input
 """
 
+import os
 import sys
 import time
 from typing import Callable
+
+
+def get_default_db() -> str:
+    """Get default database path (~/.tome/lore.db), creating dir if needed."""
+    tome_dir = os.path.expanduser("~/.tome")
+    os.makedirs(tome_dir, exist_ok=True)
+    return os.path.join(tome_dir, "lore.db")
 
 # RSPs
 from store import Store
@@ -181,7 +189,7 @@ def main():
     import argparse
     parser = argparse.ArgumentParser(description="Tome of Lore")
     parser.add_argument("--text", action="store_true", help="Use text output instead of speech")
-    parser.add_argument("--db", default="lore.db", help="Database file path")
+    parser.add_argument("--db", default=get_default_db(), help="Database file path (default: ~/.tome/lore.db)")
     args = parser.parse_args()
 
     teller_mode = "text" if args.text else "espeak"
