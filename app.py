@@ -87,9 +87,9 @@ class App:
         if event.event_type != EventType.PRESS:
             return
 
-        # Privileged quit handling - 'q' or Ctrl+Q always exits
+        # Privileged quit handling - 'q' always exits
         if event.char == 'q':
-            self.teller.speak("Goodbye")
+            self.teller.speak("quit", wait=True)  # Block until spoken
             self.shutdown()
             import os
             os._exit(0)  # Force exit, sys.exit doesn't kill threads

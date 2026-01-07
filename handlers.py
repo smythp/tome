@@ -19,7 +19,7 @@ from mode import ModeContext
 
 def quit_app(ctx: ModeContext) -> None:
     """Speak 'quit' and exit the application."""
-    ctx.teller.speak("quit")
+    ctx.teller.speak("quit", wait=True)  # Block until spoken
     os._exit(0)  # Force exit - sys.exit doesn't kill listener thread
 
 
