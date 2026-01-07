@@ -120,11 +120,18 @@ class Mark:
 
         Returns:
             True if navigated back, False if already at root/start
+
+        Raises:
+            TypeError: If stack contains non-int value
         """
         if not self._stack:
             return False
 
-        self._buffer_id = self._stack.pop()
+        buffer_id = self._stack.pop()
+        if not isinstance(buffer_id, int):
+            raise TypeError(f"buffer_id must be int, got {type(buffer_id).__name__}")
+
+        self._buffer_id = buffer_id
         return True
 
     def reset(self) -> 'Mark':
