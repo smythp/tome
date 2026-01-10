@@ -20,7 +20,7 @@ from handlers import (
     CONFIRM_ACTIONS,
     status,
     is_valid_url,
-    looks_like_domain,
+    looks_like_file,
 )
 
 
@@ -565,27 +565,43 @@ class TestIsValidUrl:
         assert is_valid_url("hello world") is False
 
 
-class TestLooksLikeDomain:
-    """Test domain detection helper."""
+class TestLooksLikeFile:
+    """Test file path detection helper."""
 
-    def test_simple_domain(self):
-        assert looks_like_domain("example.com") is True
+    def test_file_uri(self):
+        assert looks_like_file("file:///home/user/doc.txt") is True
 
-    def test_subdomain(self):
-        assert looks_like_domain("www.example.com") is True
+    def test_absolute_path_exists(self, tmp_path):
+        # Create a temp file
+        test_file = tmp_path / "test.txt"
+        test_file.write_text("hello")
+        assert looks_like_file(str(test_file)) is True
 
-    def test_domain_with_path(self):
-        assert looks_like_domain("example.com/path") is True
+    def test_absolute_path_not_exists(self):
+        assert looks_like_file("/nonexistent/path/file.txt") is False
 
-    def test_url_with_protocol_false(self):
-        # Already has protocol - not just a domain
-        assert looks_like_domain("http://example.com") is False
+    def test_relative_path_false(self):
+        assert looks_like_file("script.py") is False
 
-    def test_plain_word_false(self):
-        assert looks_like_domain("hello") is False
+    def test_domain_false(self):
+        assert looks_like_file("example.com") is False
 
-    def test_ip_false(self):
-        assert looks_like_domain("192.168.1.1") is False
+    def test_url_false(self):
+        assert looks_like_file("https://example.com") is False
+
+    def test_tilde_expansion(self):
+        # Home directory always exists
+        assert looks_like_file("~") is True
+
+    def test_tilde_path_exists(self, tmp_path, monkeypatch):
+        # Create file in fake home
+        test_file = tmp_path / "testfile.txt"
+        test_file.write_text("hello")
+        monkeypatch.setenv("HOME", str(tmp_path))
+        assert looks_like_file("~/testfile.txt") is True
+
+    def test_tilde_path_not_exists(self):
+        assert looks_like_file("~/nonexistent_file_12345.txt") is False
 
 
 # =============================================================================
@@ -632,22 +648,16 @@ class TestBrowseHandler:
         assert "https://example.com" in opened_urls
         assert "Opening" in ctx.teller.spoken[0]
 
-    def test_adds_http_to_domain(self, mock_context_with_mark, monkeypatch):
-        """Domain without protocol gets http:// added."""
-        import webbrowser
-        opened_urls = []
-        monkeypatch.setattr(webbrowser, "open", lambda url: opened_urls.append(url))
-        monkeypatch.setattr("os._exit", lambda code: None)
-
+    def test_domain_without_protocol_rejected(self, mock_context_with_mark):
+        """Domain without protocol is rejected (protocol required)."""
         ctx = mock_context_with_mark
         ctx.store.get = MagicMock(return_value={"value": "example.com"})
 
         event = make_event(char="d")
         browse_handler(event, ctx)
 
-        assert "http://example.com" in opened_urls
-        # Should mention adding protocol
-        assert any("http" in s.lower() for s in ctx.teller.spoken)
+        # Should speak "Not a valid URL"
+        assert any("not a valid" in s.lower() for s in ctx.teller.spoken)
 
     def test_invalid_url_speaks_error(self, mock_context_with_mark):
         """Invalid URL speaks error and doesn't open."""

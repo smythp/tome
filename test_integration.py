@@ -37,7 +37,7 @@ teller = get_handler("text")
 mark = Mark(store)
 mode = Mode(teller, store, mark)
 
-# Track repeat count like app.py does
+# Track repeat count like tome.py does
 last_key = None
 repeat_count = 0
 

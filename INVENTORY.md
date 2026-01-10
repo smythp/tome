@@ -8,7 +8,7 @@
 
 ## 1. default mode
 
-**Function:** `default(key)` (line 563)
+**Function:** `default(key)`
 **Message:** "Tome of Lore"
 
 **What it does:** Nothing. Empty handler - mode switching is done at key_handler level.
@@ -23,7 +23,7 @@
 
 ## 2. read mode (HOME MODE)
 
-**Function:** `read(key)` (line 819)
+**Function:** `read(key)`
 **Message:** "Read from tome"
 
 **What it does:** Primary interaction mode. Read values, navigate buffers, trigger actions.
@@ -60,7 +60,7 @@
 
 ## 3. history mode
 
-**Function:** `history(key)` (line 1125)
+**Function:** `history(key)`
 **Message:** "Viewing history"
 
 **What it does:** Navigate through historical values for a key or global history.
@@ -100,7 +100,7 @@
 
 ## 4. options mode
 
-**Function:** `options(key)` (line 1381)
+**Function:** `options(key)`
 **Message:** "Options: Press s for strip input, d for debug mode, a for default action"
 
 **What it does:** Toggle application settings.
@@ -124,7 +124,7 @@
 
 ## 5. clipboard mode
 
-**Function:** `clipboard(key)` (line 1578)
+**Function:** `clipboard(key)`
 **Message:** "Store from clipboard"
 
 **What it does:** Store clipboard content at a key.
@@ -145,7 +145,7 @@
 
 ## 6. browse mode
 
-**Function:** `browse(key)` (line 1427)
+**Function:** `browse(key)`
 **Message:** "Browse URL"
 
 **What it does:** Enter URL by key presses, then browse.
@@ -166,7 +166,7 @@
 
 ## 7. list mode
 
-**Function:** `list_mode(key)` (line 1946)
+**Function:** `list_mode(key)`
 **Message:** "List mode"
 
 **What it does:** Navigate and manipulate ordered lists.
@@ -205,7 +205,7 @@
 
 ## 8. confirm mode
 
-**Function:** `confirm(key)` (line 2112)
+**Function:** `confirm(key)`
 **Message:** None (dynamic based on action)
 
 **What it does:** Confirmation dialog for destructive actions (delete buffer).
@@ -234,7 +234,7 @@
 
 ## 9. read_clipboard (not a mode, just a function)
 
-**Function:** `read_clipboard()` (line 1421)
+**Function:** `read_clipboard()`
 **Message:** "Reading clipboard"
 
 Just speaks clipboard content. Called from other modes, not a standalone mode.

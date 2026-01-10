@@ -18,3 +18,4 @@ htmlcov/
 .aider*
 .hypothesis/
 .skein/
+outputs/

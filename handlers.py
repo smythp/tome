@@ -18,8 +18,7 @@ from mode import ModeContext
 # =============================================================================
 
 def quit_app(ctx: ModeContext) -> None:
-    """Speak 'quit' and exit the application."""
-    ctx.teller.speak("quit", wait=True)  # Block until spoken
+    """Exit the application (caller should speak before calling)."""
     os._exit(0)  # Force exit - sys.exit doesn't kill listener thread
 
 
@@ -40,9 +39,15 @@ def is_valid_url(url: str) -> bool:
     return re.match(regex, url) is not None
 
 
-def looks_like_domain(value: str) -> bool:
-    """Check if value looks like a domain without protocol."""
-    return bool(re.match(r'^[a-zA-Z0-9][-a-zA-Z0-9.]*\.[a-zA-Z]{2,}(?:\/.*)?$', value))
+def looks_like_file(value: str) -> bool:
+    """Check if value looks like a file path (absolute, ~/, or file:// URI)."""
+    if value.startswith("file://"):
+        return True
+    # Expand ~ and check if exists
+    expanded = os.path.expanduser(value)
+    if expanded.startswith("/") and os.path.exists(expanded):
+        return True
+    return False
 
 
 # =============================================================================
@@ -256,19 +261,14 @@ def browse_handler(event: KeyEvent, ctx: ModeContext) -> None:
 
     value = str(entry.get("value", ""))
 
-    # Validate/fix URL
-    if is_valid_url(value):
-        url = value
-    elif looks_like_domain(value):
-        url = "http://" + value
-        ctx.teller.speak(f"Adding http protocol")
-    else:
+    # Validate URL (must have protocol)
+    if not is_valid_url(value):
         ctx.teller.speak("Not a valid URL")
         return
 
     # Open in browser and exit
-    webbrowser.open(url)
-    ctx.teller.speak(f"Opening {value}")
+    webbrowser.open(value)
+    ctx.teller.speak("Opening", wait=True)
     quit_app(ctx)
 
 
@@ -529,11 +529,7 @@ def history_handler(event: KeyEvent, ctx: ModeContext) -> None:
                 value = entries[current_index].get("value", "")
                 if is_valid_url(value):
                     webbrowser.open(value)
-                    ctx.teller.speak("Opening in browser")
-                    quit_app(ctx)
-                elif looks_like_domain(value):
-                    webbrowser.open("http://" + value)
-                    ctx.teller.speak("Adding http protocol. Opening in browser")
+                    ctx.teller.speak("Opening", wait=True)
                     quit_app(ctx)
                 else:
                     ctx.teller.speak("Not a valid URL")
@@ -773,11 +769,9 @@ TYPE_LIST = "list"
 
 def _detect_content_type(value: str) -> str:
     """Detect the type of content in a string."""
-    import os
-
-    if is_valid_url(value) or looks_like_domain(value):
+    if is_valid_url(value):
         return "url"
-    elif os.path.exists(value):
+    elif looks_like_file(value):
         return "file"
     else:
         return "text"
@@ -965,18 +959,14 @@ def read_handler(event: KeyEvent, ctx: ModeContext) -> None:
         if last.get("value"):
             if char == "c":
                 pyperclip.copy(last["value"])
-                ctx.teller.speak("Copied to clipboard")
+                ctx.teller.speak("Copied", wait=True)
                 quit_app(ctx)
 
             elif char == "b":
                 value = last["value"]
                 if is_valid_url(value):
                     webbrowser.open(value)
-                    ctx.teller.speak("Opening in browser")
-                    quit_app(ctx)
-                elif looks_like_domain(value):
-                    webbrowser.open("http://" + value)
-                    ctx.teller.speak("Adding http protocol. Opening in browser")
+                    ctx.teller.speak("Opening", wait=True)
                     quit_app(ctx)
                 else:
                     ctx.teller.speak("Not a valid URL")
@@ -1000,7 +990,7 @@ def read_handler(event: KeyEvent, ctx: ModeContext) -> None:
                 if strip_input:
                     data = data.strip()
                 ctx.store.set(last["key"], data, buffer_id=last.get("buffer_id", ctx.mark.buffer_id))
-                ctx.teller.speak(f"Wrote {last['key']} with clipboard data")
+                ctx.teller.speak(f"Wrote {last['key']}", wait=True)
                 quit_app(ctx)
 
             elif char == "g":
@@ -1078,24 +1068,21 @@ def read_handler(event: KeyEvent, ctx: ModeContext) -> None:
         # First press - read value
         ctx.teller.speak(value)
     else:
-        # Second press - copy or smart action
-        default_action = ctx.store.get_config("default_action", "copy")
-
-        if default_action == "auto":
-            content_type = _detect_content_type(value)
-            if content_type == "url":
-                if is_valid_url(value):
-                    webbrowser.open(value)
-                elif looks_like_domain(value):
-                    webbrowser.open("http://" + value)
-                ctx.teller.speak("Opening in browser")
-                quit_app(ctx)
-            else:
-                pyperclip.copy(value)
-                ctx.teller.speak("Copied to clipboard")
-                quit_app(ctx)
+        # Second press - smart action based on content type
+        content_type = _detect_content_type(value)
+        if content_type == "url":
+            webbrowser.open(value)
+            ctx.teller.speak("Opening", wait=True)
+            quit_app(ctx)
+        elif content_type == "file":
+            # Open file in default app
+            import subprocess
+            path = value[7:] if value.startswith("file://") else value
+            path = os.path.expanduser(path)
+            subprocess.Popen(["xdg-open", path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            ctx.teller.speak("Opening", wait=True)
+            quit_app(ctx)
         else:
-            # Default: copy
             pyperclip.copy(value)
-            ctx.teller.speak("Copied to clipboard")
+            ctx.teller.speak("Copied", wait=True)
             quit_app(ctx)
