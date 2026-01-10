@@ -586,6 +586,54 @@ class Store:
         self._add_list_item(list_id, value, buffer_id, next_index)
         return next_index
 
+    def prepend_to_list(self, list_id: int, value: str) -> int:
+        """Prepend a value to a list (becomes last item in UI).
+
+        Args:
+            list_id: The list entry's ID
+            value: The value to prepend
+
+        Returns:
+            The index of the new item (0)
+        """
+        return self.insert_in_list(list_id, value, 0)
+
+    def insert_in_list(self, list_id: int, value: str, index: int) -> int:
+        """Insert a value at a specific position in a list.
+
+        Args:
+            list_id: The list entry's ID
+            value: The value to insert
+            index: The index to insert at (0-based internal index)
+
+        Returns:
+            The index where the item was inserted
+        """
+        # Get the list entry to verify it exists and isn't deleted
+        conn, cursor = self._connect()
+        try:
+            cursor.execute("SELECT * FROM lore WHERE id = ?", (list_id,))
+            list_entry = cursor.fetchone()
+            if list_entry is None:
+                raise ValueError(f"List {list_id} not found")
+            if list_entry.get("deleted"):
+                raise ValueError(f"List {list_id} is deleted")
+            buffer_id = list_entry["buffer_id"]
+
+            # Shift existing items at or after index
+            cursor.execute("""
+                UPDATE lore
+                SET item_index = item_index + 1
+                WHERE parent_id = ? AND item_index >= ?
+                AND (deleted IS NULL OR deleted = 0)
+            """, (list_id, index))
+            conn.commit()
+        finally:
+            conn.close()
+
+        self._add_list_item(list_id, value, buffer_id, index)
+        return index
+
     def _add_list_item(
         self,
         list_id: int,

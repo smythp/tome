@@ -622,10 +622,14 @@ def list_handler(event: KeyEvent, ctx: ModeContext) -> None:
         Down / Right / n / j / Ctrl+N - Next (away from item 1)
         , (comma) - Jump to top (item 1)
         . (period) - Jump to end (highest number)
-        a - Append clipboard to list (becomes new item 1)
+        a - Add clipboard to top (becomes item 1)
+        e - Add clipboard to end (becomes last item)
+        i - Insert clipboard at current position
+        Ctrl+C - Copy current item to clipboard
+        Ctrl+B - Open current item (URL/file)
         Enter - Read current item
         Delete - Delete current item
-        Backspace - Exit to read mode
+        Backspace/Esc - Exit to read mode
         ? - Help
     """
     import pyperclip
@@ -725,6 +729,36 @@ def list_handler(event: KeyEvent, ctx: ModeContext) -> None:
             _navigate_list(state, "next", ctx.teller)  # Toward item 1
         elif char == "n":
             _navigate_list(state, "prev", ctx.teller)  # Away from item 1
+        elif char == "c":
+            # Copy current item to clipboard
+            current_index = state.get("current_index", 0)
+            if items and 0 <= current_index < len(items):
+                value = items[current_index].get("value", "")
+                pyperclip.copy(value)
+                ctx.teller.speak("Copied")
+            else:
+                ctx.teller.speak("No item to copy")
+        elif char == "b":
+            # Open current item as URL/file
+            current_index = state.get("current_index", 0)
+            if items and 0 <= current_index < len(items):
+                value = items[current_index].get("value", "")
+                content_type = _detect_content_type(value)
+                if content_type == "url":
+                    webbrowser.open(value)
+                    ctx.teller.speak("Opening", wait=True)
+                    quit_app(ctx)
+                elif content_type == "file":
+                    import subprocess
+                    path = value[7:] if value.startswith("file://") else value
+                    path = os.path.expanduser(path)
+                    subprocess.Popen(["xdg-open", path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    ctx.teller.speak("Opening", wait=True)
+                    quit_app(ctx)
+                else:
+                    ctx.teller.speak("Not a URL or file")
+            else:
+                ctx.teller.speak("No item to open")
         return
 
     # Regular character keys
@@ -737,7 +771,7 @@ def list_handler(event: KeyEvent, ctx: ModeContext) -> None:
     elif char == ".":
         _navigate_list(state, "end", ctx.teller)
     elif char == "a":
-        # Append clipboard content
+        # Append clipboard content (becomes item 1)
         clipboard = pyperclip.paste()
         if clipboard:
             list_id = state.get("list_id")
@@ -747,13 +781,45 @@ def list_handler(event: KeyEvent, ctx: ModeContext) -> None:
                 items = state.get("items", [])
                 # New item is at end of internal list (user index 1)
                 state["current_index"] = len(items) - 1
-                ctx.teller.speak(f"Added new item 1: {clipboard}")
+                ctx.teller.speak(f"Added item 1: {clipboard}")
+        else:
+            ctx.teller.speak("Clipboard is empty")
+    elif char == "e":
+        # Prepend clipboard content (becomes last item)
+        clipboard = pyperclip.paste()
+        if clipboard:
+            list_id = state.get("list_id")
+            if list_id:
+                ctx.store.prepend_to_list(list_id, clipboard)
+                refresh_items()
+                items = state.get("items", [])
+                # New item is at start of internal list (user index = len)
+                state["current_index"] = 0
+                ctx.teller.speak(f"Added item {len(items)}: {clipboard}")
+        else:
+            ctx.teller.speak("Clipboard is empty")
+    elif char == "i":
+        # Insert clipboard at current position
+        clipboard = pyperclip.paste()
+        if clipboard:
+            list_id = state.get("list_id")
+            current_index = state.get("current_index", 0)
+            if list_id:
+                # Insert at current_index + 1 so new item takes current user position
+                insert_idx = current_index + 1
+                ctx.store.insert_in_list(list_id, clipboard, insert_idx)
+                refresh_items()
+                items = state.get("items", [])
+                # Stay at the new item (which is at insert_idx)
+                state["current_index"] = insert_idx
+                user_idx = _user_index(insert_idx, items)
+                ctx.teller.speak(f"Inserted item {user_idx}: {clipboard}")
         else:
             ctx.teller.speak("Clipboard is empty")
     elif char == "?":
         ctx.teller.speak(
-            "List mode: a to add, n or j for next, p or k for previous, "
-            "period for last, comma for first, backspace to exit"
+            "List mode: a add to top, e add to end, i insert here, "
+            "n next, p previous, ctrl c copy, ctrl b open, backspace exit"
         )
 
 
@@ -989,8 +1055,15 @@ def read_handler(event: KeyEvent, ctx: ModeContext) -> None:
                 strip_input = ctx.store.get_config("strip_input", "on") == "on"
                 if strip_input:
                     data = data.strip()
-                ctx.store.set(last["key"], data, buffer_id=last.get("buffer_id", ctx.mark.buffer_id))
-                ctx.teller.speak(f"Wrote {last['key']}", wait=True)
+                # Check if key contains a list - append instead of clobber
+                entry = ctx.store.get(last["key"], buffer_id=last.get("buffer_id", ctx.mark.buffer_id))
+                if entry and entry.get("data_type") == TYPE_LIST:
+                    list_id = entry.get("id")
+                    ctx.store.append_to_list(list_id, data)
+                    ctx.teller.speak(f"Added to {last['key']}", wait=True)
+                else:
+                    ctx.store.set(last["key"], data, buffer_id=last.get("buffer_id", ctx.mark.buffer_id))
+                    ctx.teller.speak(f"Wrote {last['key']}", wait=True)
                 quit_app(ctx)
 
             elif char == "g":
