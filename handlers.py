@@ -7,7 +7,7 @@ Each handler is a function: (event: KeyEvent, context: ModeContext) -> None
 import os
 import re
 import webbrowser
-from typing import Callable, Any
+from typing import Callable
 
 from listener import KeyEvent, SpecialKey
 from mode import ModeContext
@@ -16,6 +16,7 @@ from mode import ModeContext
 # =============================================================================
 # Helpers
 # =============================================================================
+
 
 def quit_app(ctx: ModeContext) -> None:
     """Exit the application (caller should speak before calling)."""
@@ -30,12 +31,14 @@ def status(value: bool) -> str:
 def is_valid_url(url: str) -> bool:
     """Check if a string is a valid URL with protocol."""
     regex = re.compile(
-        r'^(?:http|ftp)s?://'  # http://, https://, ftp://, ftps://
-        r'(?:(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+(?:[A-Z]{2,6}\.?|[A-Z0-9-]{2,}\.?)|'  # domain
-        r'localhost|'  # localhost
-        r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})'  # IP
-        r'(?::\d+)?'  # optional port
-        r'(?:/?|[/?]\S+)$', re.IGNORECASE)
+        r"^(?:http|ftp)s?://"  # http://, https://, ftp://, ftps://
+        r"(?:(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+(?:[A-Z]{2,6}\.?|[A-Z0-9-]{2,}\.?)|"  # domain
+        r"localhost|"  # localhost
+        r"\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})"  # IP
+        r"(?::\d+)?"  # optional port
+        r"(?:/?|[/?]\S+)$",
+        re.IGNORECASE,
+    )
     return re.match(regex, url) is not None
 
 
@@ -62,6 +65,7 @@ CONFIRM_ACTIONS: dict[str, Callable[[dict, ModeContext], tuple[bool, str]]] = {}
 # =============================================================================
 # Options Mode
 # =============================================================================
+
 
 def options_handler(event: KeyEvent, ctx: ModeContext) -> None:
     """
@@ -115,6 +119,7 @@ def options_handler(event: KeyEvent, ctx: ModeContext) -> None:
 # =============================================================================
 # Confirm Mode
 # =============================================================================
+
 
 def confirm_handler(event: KeyEvent, ctx: ModeContext) -> None:
     """
@@ -176,7 +181,9 @@ def confirm_handler(event: KeyEvent, ctx: ModeContext) -> None:
             ctx.teller.speak(prompt)
 
 
-def register_confirm_action(name: str, action: Callable[[dict, ModeContext], tuple[bool, str]]) -> None:
+def register_confirm_action(
+    name: str, action: Callable[[dict, ModeContext], tuple[bool, str]]
+) -> None:
     """Register an action that can be confirmed."""
     CONFIRM_ACTIONS[name] = action
 
@@ -184,6 +191,7 @@ def register_confirm_action(name: str, action: Callable[[dict, ModeContext], tup
 # =============================================================================
 # Clipboard Mode
 # =============================================================================
+
 
 def clipboard_handler(event: KeyEvent, ctx: ModeContext) -> None:
     """
@@ -231,6 +239,7 @@ def clipboard_handler(event: KeyEvent, ctx: ModeContext) -> None:
 # Browse Mode
 # =============================================================================
 
+
 def browse_handler(event: KeyEvent, ctx: ModeContext) -> None:
     """
     Open URL from stored data in browser.
@@ -275,6 +284,7 @@ def browse_handler(event: KeyEvent, ctx: ModeContext) -> None:
 # =============================================================================
 # History Mode
 # =============================================================================
+
 
 def _format_global_history_entry(entry: dict, teller) -> None:
     """Format and speak a global history entry with buffer/key info."""
@@ -324,7 +334,9 @@ def _navigate_history(state: dict, direction: str, teller) -> None:
         teller.speak(f"Entry {current_index + 1} of {total}")
         _format_global_history_entry(entry, teller)
     else:
-        teller.speak(f"Entry {current_index + 1} of {total}: {deleted_prefix}{entry.get('value', '')}")
+        teller.speak(
+            f"Entry {current_index + 1} of {total}: {deleted_prefix}{entry.get('value', '')}"
+        )
 
 
 def _delete_history_entry(state: dict, ctx: ModeContext) -> None:
@@ -460,8 +472,14 @@ def history_handler(event: KeyEvent, ctx: ModeContext) -> None:
     state = ctx.get_state()
 
     # Check if we need to initialize from setup data
-    last_retrieved = getattr(ctx.mark, 'last_retrieved', None) if hasattr(ctx, 'mark') else None
-    setup = last_retrieved.get("_history_setup") if last_retrieved and isinstance(last_retrieved, dict) else None
+    last_retrieved = (
+        getattr(ctx.mark, "last_retrieved", None) if hasattr(ctx, "mark") else None
+    )
+    setup = (
+        last_retrieved.get("_history_setup")
+        if last_retrieved and isinstance(last_retrieved, dict)
+        else None
+    )
     if setup and "entries" not in state:
         state["entries"] = setup.get("entries", [])
         state["current_index"] = 0
@@ -469,8 +487,12 @@ def history_handler(event: KeyEvent, ctx: ModeContext) -> None:
         state["key"] = setup.get("key")
         state["buffer_id"] = setup.get("buffer_id")
         # Clear setup flag
-        if hasattr(ctx, 'mark') and ctx.mark:
-            ctx.mark.last_retrieved = {"value": None, "key": setup.get("key"), "buffer_id": setup.get("buffer_id")}
+        if hasattr(ctx, "mark") and ctx.mark:
+            ctx.mark.last_retrieved = {
+                "value": None,
+                "key": setup.get("key"),
+                "buffer_id": setup.get("buffer_id"),
+            }
 
     entries = state.get("entries", [])
 
@@ -502,6 +524,7 @@ def history_handler(event: KeyEvent, ctx: ModeContext) -> None:
 
     # Check for Ctrl modifier
     from listener import Modifier
+
     has_ctrl = Modifier.CTRL in event.modifiers
 
     if has_ctrl:
@@ -544,6 +567,7 @@ def history_handler(event: KeyEvent, ctx: ModeContext) -> None:
 # =============================================================================
 # List Mode
 # =============================================================================
+
 
 def _user_index(internal_index: int, items: list) -> int:
     """Convert internal zero-based index to user-facing one-based index (oldest = 1, newest = N)."""
@@ -638,11 +662,14 @@ def _handle_all_mode_action(event: KeyEvent, state: dict, ctx: ModeContext) -> N
                 opened += 1
             elif content_type == "file":
                 import subprocess
+
                 path = value[7:] if value.startswith("file://") else value
                 path = os.path.expanduser(path)
-                subprocess.Popen(["xdg-open", path],
-                                 stdout=subprocess.DEVNULL,
-                                 stderr=subprocess.DEVNULL)
+                subprocess.Popen(
+                    ["xdg-open", path],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
                 opened += 1
         if opened:
             ctx.teller.speak(f"Opening {opened} items", wait=True)
@@ -652,7 +679,7 @@ def _handle_all_mode_action(event: KeyEvent, state: dict, ctx: ModeContext) -> N
 
     else:
         # Cancel on any other key (including Escape via event.key)
-        ctx.teller.speak("Cancelled")
+        ctx.teller.speak("Bulk cancelled")
 
 
 def list_handler(event: KeyEvent, ctx: ModeContext) -> None:
@@ -689,8 +716,14 @@ def list_handler(event: KeyEvent, ctx: ModeContext) -> None:
     state = ctx.get_state()
 
     # Check for setup data smuggled via mark.last_retrieved (same pattern as history)
-    last_retrieved = ctx.mark.last_retrieved if hasattr(ctx, 'mark') and ctx.mark else None
-    setup = last_retrieved.get("_list_setup") if last_retrieved and isinstance(last_retrieved, dict) else None
+    last_retrieved = (
+        ctx.mark.last_retrieved if hasattr(ctx, "mark") and ctx.mark else None
+    )
+    setup = (
+        last_retrieved.get("_list_setup")
+        if last_retrieved and isinstance(last_retrieved, dict)
+        else None
+    )
     if setup and "items" not in state:
         state["list_id"] = setup.get("list_id")
         state["key"] = setup.get("key")
@@ -698,8 +731,12 @@ def list_handler(event: KeyEvent, ctx: ModeContext) -> None:
         state["items"] = setup.get("items", [])
         state["current_index"] = setup.get("current_index", 0)
         # Clear setup flag
-        if hasattr(ctx, 'mark') and ctx.mark:
-            ctx.mark.last_retrieved = {"value": None, "key": setup.get("key"), "buffer_id": setup.get("buffer_id")}
+        if hasattr(ctx, "mark") and ctx.mark:
+            ctx.mark.last_retrieved = {
+                "value": None,
+                "key": setup.get("key"),
+                "buffer_id": setup.get("buffer_id"),
+            }
 
     items = state.get("items", [])
 
@@ -741,7 +778,9 @@ def list_handler(event: KeyEvent, ctx: ModeContext) -> None:
         if items and 0 <= state.get("current_index", 0) < len(items):
             item = items[state["current_index"]]
             user_idx = _user_index(state["current_index"], items)
-            ctx.teller.speak(f"Item {user_idx} of {len(items)}: {item.get('value', '')}")
+            ctx.teller.speak(
+                f"Item {user_idx} of {len(items)}: {item.get('value', '')}"
+            )
         else:
             ctx.teller.speak("List is empty")
         return
@@ -764,7 +803,9 @@ def list_handler(event: KeyEvent, ctx: ModeContext) -> None:
                             state["current_index"] = len(items) - 1
                         new_item = items[state["current_index"]]
                         new_user_idx = _user_index(state["current_index"], items)
-                        ctx.teller.speak(f"Now at item {new_user_idx} of {len(items)}: {new_item.get('value', '')}")
+                        ctx.teller.speak(
+                            f"Now at item {new_user_idx} of {len(items)}: {new_item.get('value', '')}"
+                        )
                     else:
                         ctx.teller.speak("List is now empty")
                 else:
@@ -806,9 +847,14 @@ def list_handler(event: KeyEvent, ctx: ModeContext) -> None:
                     quit_app(ctx)
                 elif content_type == "file":
                     import subprocess
+
                     path = value[7:] if value.startswith("file://") else value
                     path = os.path.expanduser(path)
-                    subprocess.Popen(["xdg-open", path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    subprocess.Popen(
+                        ["xdg-open", path],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                    )
                     ctx.teller.speak("Opening", wait=True)
                     quit_app(ctx)
                 else:
@@ -921,7 +967,9 @@ def _enter_history_mode(key: str, buffer_id: int, ctx: ModeContext) -> bool:
     # We need to setup history mode's state, so switch first then setup
     # Actually, Mode.switch will give us a fresh state for history mode
 
-    ctx.teller.speak(f"History for {key}, {len(entries)} entries. Most recent: {entries[0].get('value', '')}")
+    ctx.teller.speak(
+        f"History for {key}, {len(entries)} entries. Most recent: {entries[0].get('value', '')}"
+    )
 
     # Store setup data in mark for history_handler to pick up
     ctx.mark.last_retrieved = {
@@ -956,7 +1004,7 @@ def _enter_list_mode(key: str, buffer_id: int, ctx: ModeContext) -> bool:
     elif entry.get("data_type") == TYPE_LIST:
         # Already a list
         list_id = entry.get("id")
-        ctx.teller.speak(f"List mode")
+        ctx.teller.speak("List mode")
     else:
         ctx.teller.speak("Cannot convert to list")
         return False
@@ -968,7 +1016,9 @@ def _enter_list_mode(key: str, buffer_id: int, ctx: ModeContext) -> bool:
     start_index = len(items) - 1 if items else 0
 
     if items:
-        ctx.teller.speak(f"Item {len(items)} of {len(items)}: {items[-1].get('value', '')}")
+        ctx.teller.speak(
+            f"Item {len(items)} of {len(items)}: {items[-1].get('value', '')}"
+        )
     else:
         ctx.teller.speak("Empty list")
 
@@ -1044,7 +1094,9 @@ def read_handler(event: KeyEvent, ctx: ModeContext) -> None:
             return
 
         # Get the entry to delete
-        entry = ctx.store.get(last["key"], buffer_id=last.get("buffer_id", ctx.mark.buffer_id))
+        entry = ctx.store.get(
+            last["key"], buffer_id=last.get("buffer_id", ctx.mark.buffer_id)
+        )
 
         if not entry:
             ctx.teller.speak(f"No data at key {last['key']}")
@@ -1077,7 +1129,7 @@ def read_handler(event: KeyEvent, ctx: ModeContext) -> None:
         return
 
     # Only handle alphanumeric in read mode
-    if not char.isalnum() and not (Modifier.CTRL in event.modifiers):
+    if not char.isalnum() and Modifier.CTRL not in event.modifiers:
         return
 
     has_ctrl = Modifier.CTRL in event.modifiers
@@ -1103,7 +1155,9 @@ def read_handler(event: KeyEvent, ctx: ModeContext) -> None:
                 return
 
             elif char == "t":
-                entry = ctx.store.get(last["key"], buffer_id=last.get("buffer_id", ctx.mark.buffer_id))
+                entry = ctx.store.get(
+                    last["key"], buffer_id=last.get("buffer_id", ctx.mark.buffer_id)
+                )
                 if entry:
                     _read_timestamp(entry, ctx.teller)
                 return
@@ -1111,7 +1165,9 @@ def read_handler(event: KeyEvent, ctx: ModeContext) -> None:
         # Operations requiring last_retrieved key
         if last.get("key"):
             if char == "h":
-                _enter_history_mode(last["key"], last.get("buffer_id", ctx.mark.buffer_id), ctx)
+                _enter_history_mode(
+                    last["key"], last.get("buffer_id", ctx.mark.buffer_id), ctx
+                )
                 return
 
             elif char == "y":
@@ -1120,13 +1176,19 @@ def read_handler(event: KeyEvent, ctx: ModeContext) -> None:
                 if strip_input:
                     data = data.strip()
                 # Check if key contains a list - append instead of clobber
-                entry = ctx.store.get(last["key"], buffer_id=last.get("buffer_id", ctx.mark.buffer_id))
+                entry = ctx.store.get(
+                    last["key"], buffer_id=last.get("buffer_id", ctx.mark.buffer_id)
+                )
                 if entry and entry.get("data_type") == TYPE_LIST:
                     list_id = entry.get("id")
                     ctx.store.append_to_list(list_id, data)
                     ctx.teller.speak(f"Added to {last['key']}", wait=True)
                 else:
-                    ctx.store.set(last["key"], data, buffer_id=last.get("buffer_id", ctx.mark.buffer_id))
+                    ctx.store.set(
+                        last["key"],
+                        data,
+                        buffer_id=last.get("buffer_id", ctx.mark.buffer_id),
+                    )
                     ctx.teller.speak(f"Wrote {last['key']}", wait=True)
                 quit_app(ctx)
 
@@ -1149,7 +1211,9 @@ def read_handler(event: KeyEvent, ctx: ModeContext) -> None:
                 return
 
             elif char == "l":
-                _enter_list_mode(last["key"], last.get("buffer_id", ctx.mark.buffer_id), ctx)
+                _enter_list_mode(
+                    last["key"], last.get("buffer_id", ctx.mark.buffer_id), ctx
+                )
                 return
 
         # Operations that don't require last_retrieved
@@ -1192,7 +1256,9 @@ def read_handler(event: KeyEvent, ctx: ModeContext) -> None:
         items = ctx.store.list_items(entry.get("id"))
         if ctx.repeat_count == 1:
             if items:
-                ctx.teller.speak(f"List with {len(items)} items. Item 1: {items[0].get('value', '')}")
+                ctx.teller.speak(
+                    f"List with {len(items)} items. Item 1: {items[0].get('value', '')}"
+                )
             else:
                 ctx.teller.speak(f"Empty list at key {char}")
         else:
@@ -1214,9 +1280,12 @@ def read_handler(event: KeyEvent, ctx: ModeContext) -> None:
         elif content_type == "file":
             # Open file in default app
             import subprocess
+
             path = value[7:] if value.startswith("file://") else value
             path = os.path.expanduser(path)
-            subprocess.Popen(["xdg-open", path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            subprocess.Popen(
+                ["xdg-open", path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+            )
             ctx.teller.speak("Opening", wait=True)
             quit_app(ctx)
         else:

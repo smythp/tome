@@ -1063,7 +1063,7 @@ class TestListHandler:
         assert "Copied 3 items" in ctx.teller.spoken[0]
 
     def test_all_mode_escape_cancels(self, mock_context_for_list):
-        """In all mode, escape cancels."""
+        """In all mode, escape cancels but stays in list mode."""
         ctx = mock_context_for_list
         ctx._state["all_mode"] = True
         event = make_event(key=SpecialKey.ESCAPE)
@@ -1071,7 +1071,8 @@ class TestListHandler:
         list_handler(event, ctx)
 
         assert ctx._state.get("all_mode") is False
-        assert "Cancelled" in ctx.teller.spoken[0]
+        assert "Bulk cancelled" in ctx.teller.spoken[0]
+        ctx.back.assert_not_called()  # Stays in list mode
 
     def test_all_mode_unknown_key_cancels(self, mock_context_for_list):
         """In all mode, unknown key cancels."""
@@ -1082,10 +1083,10 @@ class TestListHandler:
         list_handler(event, ctx)
 
         assert ctx._state.get("all_mode") is False
-        assert "Cancelled" in ctx.teller.spoken[0]
+        assert "Bulk cancelled" in ctx.teller.spoken[0]
 
     def test_all_mode_empty_list_announces(self, mock_context_for_list):
-        """In all mode with empty list, announces it."""
+        """In all mode with empty list, announces it and clears flag."""
         ctx = mock_context_for_list
         ctx._state["all_mode"] = True
         ctx._state["items"] = []
@@ -1093,7 +1094,43 @@ class TestListHandler:
 
         list_handler(event, ctx)
 
+        assert ctx._state.get("all_mode") is False  # Flag cleared
         assert "List is empty" in ctx.teller.spoken[0]
+
+    def test_all_mode_b_opens_urls(self, mock_context_for_list, monkeypatch):
+        """In all mode, 'b' opens all URLs."""
+        opened_urls = []
+        monkeypatch.setattr("webbrowser.open", lambda url: opened_urls.append(url))
+        monkeypatch.setattr("handlers.quit_app", lambda ctx: None)
+
+        ctx = mock_context_for_list
+        ctx._state["all_mode"] = True
+        ctx._state["items"] = [
+            {"id": 1, "value": "https://example.com"},
+            {"id": 2, "value": "https://test.org"},
+        ]
+        event = make_event(char="b")
+
+        list_handler(event, ctx)
+
+        assert ctx._state.get("all_mode") is False
+        assert len(opened_urls) == 2
+        assert "Opening 2 items" in ctx.teller.spoken[0]
+
+    def test_all_mode_b_no_urls_announces(self, mock_context_for_list):
+        """In all mode, 'b' with no URLs announces it."""
+        ctx = mock_context_for_list
+        ctx._state["all_mode"] = True
+        ctx._state["items"] = [
+            {"id": 1, "value": "plain text"},
+            {"id": 2, "value": "also not a url"},
+        ]
+        event = make_event(char="b")
+
+        list_handler(event, ctx)
+
+        assert ctx._state.get("all_mode") is False
+        assert "No URLs or files" in ctx.teller.spoken[0]
 
 
 # =============================================================================
