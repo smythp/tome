@@ -1034,6 +1034,67 @@ class TestListHandler:
 
         assert ctx._state["current_index"] == 1
 
+    def test_ctrl_a_enters_all_mode(self, mock_context_for_list):
+        """Ctrl+A enters all mode and announces 'All'."""
+        ctx = mock_context_for_list
+        event = make_ctrl_event("a")
+
+        list_handler(event, ctx)
+
+        assert ctx._state.get("all_mode") is True
+        assert "All" in ctx.teller.spoken[0]
+
+    def test_all_mode_c_copies_all_items(self, mock_context_for_list, monkeypatch):
+        """In all mode, 'c' copies all items to clipboard."""
+        copied = []
+        monkeypatch.setattr("pyperclip.copy", lambda x: copied.append(x))
+
+        ctx = mock_context_for_list
+        ctx._state["all_mode"] = True  # Already in all mode
+        event = make_event(char="c")
+
+        list_handler(event, ctx)
+
+        assert ctx._state.get("all_mode") is False  # Flag cleared
+        assert len(copied) == 1
+        assert "oldest" in copied[0]
+        assert "middle" in copied[0]
+        assert "newest" in copied[0]
+        assert "Copied 3 items" in ctx.teller.spoken[0]
+
+    def test_all_mode_escape_cancels(self, mock_context_for_list):
+        """In all mode, escape cancels."""
+        ctx = mock_context_for_list
+        ctx._state["all_mode"] = True
+        event = make_event(key=SpecialKey.ESCAPE)
+
+        list_handler(event, ctx)
+
+        assert ctx._state.get("all_mode") is False
+        assert "Cancelled" in ctx.teller.spoken[0]
+
+    def test_all_mode_unknown_key_cancels(self, mock_context_for_list):
+        """In all mode, unknown key cancels."""
+        ctx = mock_context_for_list
+        ctx._state["all_mode"] = True
+        event = make_event(char="x")
+
+        list_handler(event, ctx)
+
+        assert ctx._state.get("all_mode") is False
+        assert "Cancelled" in ctx.teller.spoken[0]
+
+    def test_all_mode_empty_list_announces(self, mock_context_for_list):
+        """In all mode with empty list, announces it."""
+        ctx = mock_context_for_list
+        ctx._state["all_mode"] = True
+        ctx._state["items"] = []
+        event = make_event(char="c")
+
+        list_handler(event, ctx)
+
+        assert "List is empty" in ctx.teller.spoken[0]
+
 
 # =============================================================================
 # Read Handler Tests

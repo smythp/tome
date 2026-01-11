@@ -606,6 +606,55 @@ def _navigate_list(state: dict, direction: str, teller) -> bool:
     return True
 
 
+def _handle_all_mode_action(event: KeyEvent, state: dict, ctx: ModeContext) -> None:
+    """Handle the action key after Ctrl+A (all mode) in list mode."""
+    import pyperclip
+
+    # Clear the flag first
+    state["all_mode"] = False
+
+    items = state.get("items", [])
+    if not items:
+        ctx.teller.speak("List is empty")
+        return
+
+    char = event.char
+
+    if char == "c":
+        # Copy all items
+        values = [item.get("value", "") for item in items]
+        combined = "\n".join(values)
+        pyperclip.copy(combined)
+        ctx.teller.speak(f"Copied {len(items)} items")
+
+    elif char == "b":
+        # Open all URLs/files
+        opened = 0
+        for item in items:
+            value = item.get("value", "")
+            content_type = _detect_content_type(value)
+            if content_type == "url":
+                webbrowser.open(value)
+                opened += 1
+            elif content_type == "file":
+                import subprocess
+                path = value[7:] if value.startswith("file://") else value
+                path = os.path.expanduser(path)
+                subprocess.Popen(["xdg-open", path],
+                                 stdout=subprocess.DEVNULL,
+                                 stderr=subprocess.DEVNULL)
+                opened += 1
+        if opened:
+            ctx.teller.speak(f"Opening {opened} items", wait=True)
+            quit_app(ctx)
+        else:
+            ctx.teller.speak("No URLs or files to open")
+
+    else:
+        # Cancel on any other key (including Escape via event.key)
+        ctx.teller.speak("Cancelled")
+
+
 def list_handler(event: KeyEvent, ctx: ModeContext) -> None:
     """
     Navigate and manipulate ordered lists.
@@ -616,6 +665,7 @@ def list_handler(event: KeyEvent, ctx: ModeContext) -> None:
         current_index: int - Current position (internal index)
         key: str - Key where list lives
         buffer_id: int - Buffer containing the list
+        all_mode: bool - True when waiting for bulk action key after Ctrl+A
 
     Keys:
         Up / Left / p / k / Ctrl+P - Previous (toward item 1, older)
@@ -627,6 +677,7 @@ def list_handler(event: KeyEvent, ctx: ModeContext) -> None:
         i - Insert clipboard at current position
         Ctrl+C - Copy current item to clipboard
         Ctrl+B - Open current item (URL/file)
+        Ctrl+A - Bulk mode: then c (copy all) or b (open all)
         Enter - Read current item
         Delete - Delete current item
         Backspace/Esc - Exit to read mode
@@ -651,6 +702,11 @@ def list_handler(event: KeyEvent, ctx: ModeContext) -> None:
             ctx.mark.last_retrieved = {"value": None, "key": setup.get("key"), "buffer_id": setup.get("buffer_id")}
 
     items = state.get("items", [])
+
+    # Handle "all mode" - Ctrl+A was pressed, waiting for action key
+    if state.get("all_mode"):
+        _handle_all_mode_action(event, state, ctx)
+        return
 
     def exit_list():
         state.clear()
@@ -759,6 +815,10 @@ def list_handler(event: KeyEvent, ctx: ModeContext) -> None:
                     ctx.teller.speak("Not a URL or file")
             else:
                 ctx.teller.speak("No item to open")
+        elif char == "a":
+            # Enter "all mode" for bulk operations
+            state["all_mode"] = True
+            ctx.teller.speak("All")
         return
 
     # Regular character keys
@@ -819,7 +879,8 @@ def list_handler(event: KeyEvent, ctx: ModeContext) -> None:
     elif char == "?":
         ctx.teller.speak(
             "List mode: a add to top, e add to end, i insert here, "
-            "n next, p previous, ctrl c copy, ctrl b open, backspace exit"
+            "n next, p previous, ctrl c copy, ctrl b open, "
+            "ctrl a all then c or b, backspace exit"
         )
 
 
