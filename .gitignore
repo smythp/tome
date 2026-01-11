@@ -5,11 +5,6 @@
 __pycache__/
 .python-version
 *.db
-test.py
-notes.py
-reset.sh
-run_tome.sh
-run_tests.sh
 .venv/
 .env
 .pytest_cache/
