@@ -1,0 +1,29 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python:*)",
+      "Bash(uv run:*)",
+      "Bash(grep:*)",
+      "Bash(timeout 5 uv run:*)",
+      "Bash(true)",
+      "Bash(sed:*)",
+      "Bash(horizon cast --mantle namer --message \"I''m decomposing a keyboard-driven, audio-only hierarchical data storage app called ''Tome of Lore'' \\(or just ''Tome''\\) into rock-solid primitives.\n\nContext: Users store/retrieve nested data via keyboard shortcuts. espeak reads things back. It''s a tree structure \\(parent_id references\\) with soft delete. Modal architecture \\(different modes handle different operations\\).\n\nNeed names for 4 primitives. Each should:\n- Be a clear noun \\(not abstract/overloaded\\)\n- Feel cohesive with ''Tome'' theming if possible \\(but not forced\\)\n- Be obvious what it does from the name\n\n1. **Hierarchical data store**: Stores entries in a tree. CRUD on paths like a/b/c. Soft delete, restore. The actual domain model. \\(NOT ''Storage'' - too generic\\)\n\n2. **Audio/TTS output**: Wraps espeak. speak\\(text\\), announce\\(text\\). The voice of the system. \\(NOT ''Feedback'' or ''Output'' - overloaded\\)\n\n3. **Keyboard input**: Wraps pynput. Listens for keys, handles modifiers, emits key events. \\(NOT ''Input'' - too generic\\)\n\n4. **Modal state machine**: Routes key events to mode handlers. Manages mode transitions, tracks current mode. \\(NOT ''Controller'' - overloaded\\)\n\nGive me 2-3 options for each with brief rationale, then your pick.\")",
+      "Bash(horizon cast:*)",
+      "Bash(horizon strands:*)",
+      "Bash(horizon omlet:*)",
+      "Bash(horizon:*)",
+      "mcp__spindle__spin",
+      "mcp__spindle__spin_wait",
+      "Bash(espeak:*)",
+      "mcp__spindle__spool_peek",
+      "mcp__spindle__spools",
+      "mcp__spindle__spin_drop",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(timeout 3 python:*)",
+      "Bash(.venv/bin/pytest:*)"
+    ],
+    "deny": []
+  },
+  "enableAllProjectMcpServers": false
+}

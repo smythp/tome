@@ -546,10 +546,10 @@ def history_handler(event: KeyEvent, ctx: ModeContext) -> None:
 # =============================================================================
 
 def _user_index(internal_index: int, items: list) -> int:
-    """Convert internal zero-based index to user-facing one-based index (newest = 1)."""
+    """Convert internal zero-based index to user-facing one-based index (oldest = 1, newest = N)."""
     if not items:
         return 0
-    return len(items) - internal_index
+    return internal_index + 1
 
 
 def _navigate_list(state: dict, direction: str, teller) -> bool:
