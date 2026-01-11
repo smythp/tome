@@ -576,16 +576,16 @@ def _navigate_list(state: dict, direction: str, teller) -> bool:
         current_index = state["current_index"]
 
     if direction == "next" and current_index < len(items) - 1:
-        # Move toward higher internal index (lower user index)
+        # Move toward higher internal index (higher user number = newer)
         state["current_index"] = current_index + 1
     elif direction == "prev" and current_index > 0:
-        # Move toward lower internal index (higher user index)
+        # Move toward lower internal index (lower user number = older)
         state["current_index"] = current_index - 1
-    elif direction == "end":
-        # Jump to highest number (internal index 0)
-        state["current_index"] = 0
     elif direction == "top":
-        # Jump to item 1 (internal index = len - 1)
+        # Jump to item 1 (oldest = internal index 0)
+        state["current_index"] = 0
+    elif direction == "end":
+        # Jump to last item (newest = internal index len-1)
         state["current_index"] = len(items) - 1
     else:
         if direction == "next":
@@ -618,12 +618,12 @@ def list_handler(event: KeyEvent, ctx: ModeContext) -> None:
         buffer_id: int - Buffer containing the list
 
     Keys:
-        Up / Left / p / k / Ctrl+P - Previous (toward item 1)
-        Down / Right / n / j / Ctrl+N - Next (away from item 1)
-        , (comma) - Jump to top (item 1)
-        . (period) - Jump to end (highest number)
-        a - Add clipboard to top (becomes item 1)
-        e - Add clipboard to end (becomes last item)
+        Up / Left / p / k / Ctrl+P - Previous (toward item 1, older)
+        Down / Right / n / j / Ctrl+N - Next (toward item N, newer)
+        , (comma) - Jump to first (item 1, oldest)
+        . (period) - Jump to last (item N, newest)
+        a - Add clipboard to top (becomes newest item)
+        e - Add clipboard to bottom (becomes item 1, oldest)
         i - Insert clipboard at current position
         Ctrl+C - Copy current item to clipboard
         Ctrl+B - Open current item (URL/file)
@@ -672,13 +672,13 @@ def list_handler(event: KeyEvent, ctx: ModeContext) -> None:
         return
 
     if event.key == SpecialKey.UP or event.key == SpecialKey.LEFT:
-        # Toward item 1 (higher user index) = higher internal index
-        _navigate_list(state, "next", ctx.teller)
+        # Toward item 1 (older) = lower internal index
+        _navigate_list(state, "prev", ctx.teller)
         return
 
     if event.key == SpecialKey.DOWN or event.key == SpecialKey.RIGHT:
-        # Away from item 1 (lower user index) = lower internal index
-        _navigate_list(state, "prev", ctx.teller)
+        # Toward item N (newer) = higher internal index
+        _navigate_list(state, "next", ctx.teller)
         return
 
     if event.key == SpecialKey.ENTER:
@@ -726,9 +726,9 @@ def list_handler(event: KeyEvent, ctx: ModeContext) -> None:
 
     if has_ctrl:
         if char == "p":
-            _navigate_list(state, "next", ctx.teller)  # Toward item 1
+            _navigate_list(state, "prev", ctx.teller)  # Toward item 1 (older)
         elif char == "n":
-            _navigate_list(state, "prev", ctx.teller)  # Away from item 1
+            _navigate_list(state, "next", ctx.teller)  # Toward item N (newer)
         elif char == "c":
             # Copy current item to clipboard
             current_index = state.get("current_index", 0)
@@ -763,15 +763,15 @@ def list_handler(event: KeyEvent, ctx: ModeContext) -> None:
 
     # Regular character keys
     if char == "n" or char == "j":
-        _navigate_list(state, "prev", ctx.teller)
+        _navigate_list(state, "next", ctx.teller)  # Next (toward newer)
     elif char == "p" or char == "k":
-        _navigate_list(state, "next", ctx.teller)
+        _navigate_list(state, "prev", ctx.teller)  # Previous (toward older)
     elif char == ",":
         _navigate_list(state, "top", ctx.teller)
     elif char == ".":
         _navigate_list(state, "end", ctx.teller)
     elif char == "a":
-        # Append clipboard content (becomes item 1)
+        # Append clipboard content (becomes newest = highest number)
         clipboard = pyperclip.paste()
         if clipboard:
             list_id = state.get("list_id")
@@ -779,13 +779,13 @@ def list_handler(event: KeyEvent, ctx: ModeContext) -> None:
                 ctx.store.append_to_list(list_id, clipboard)
                 refresh_items()
                 items = state.get("items", [])
-                # New item is at end of internal list (user index 1)
+                # New item is at end of internal list (user index N = newest)
                 state["current_index"] = len(items) - 1
-                ctx.teller.speak(f"Added item 1: {clipboard}")
+                ctx.teller.speak(f"Added item {len(items)}: {clipboard}")
         else:
             ctx.teller.speak("Clipboard is empty")
     elif char == "e":
-        # Prepend clipboard content (becomes last item)
+        # Prepend clipboard content (becomes item 1 = oldest)
         clipboard = pyperclip.paste()
         if clipboard:
             list_id = state.get("list_id")
@@ -793,9 +793,9 @@ def list_handler(event: KeyEvent, ctx: ModeContext) -> None:
                 ctx.store.prepend_to_list(list_id, clipboard)
                 refresh_items()
                 items = state.get("items", [])
-                # New item is at start of internal list (user index = len)
+                # New item is at start of internal list (user index 1 = oldest)
                 state["current_index"] = 0
-                ctx.teller.speak(f"Added item {len(items)}: {clipboard}")
+                ctx.teller.speak(f"Added item 1: {clipboard}")
         else:
             ctx.teller.speak("Clipboard is empty")
     elif char == "i":
@@ -903,8 +903,11 @@ def _enter_list_mode(key: str, buffer_id: int, ctx: ModeContext) -> bool:
     # Get list items
     items = ctx.store.list_items(list_id)
 
+    # Start at newest item (highest number = internal len-1)
+    start_index = len(items) - 1 if items else 0
+
     if items:
-        ctx.teller.speak(f"Item 1 of {len(items)}: {items[-1].get('value', '')}")
+        ctx.teller.speak(f"Item {len(items)} of {len(items)}: {items[-1].get('value', '')}")
     else:
         ctx.teller.speak("Empty list")
 
@@ -915,7 +918,7 @@ def _enter_list_mode(key: str, buffer_id: int, ctx: ModeContext) -> bool:
             "key": key,
             "buffer_id": buffer_id,
             "items": items,
-            "current_index": len(items) - 1 if items else 0,
+            "current_index": start_index,
         }
     }
 
@@ -1128,7 +1131,7 @@ def read_handler(event: KeyEvent, ctx: ModeContext) -> None:
         items = ctx.store.list_items(entry.get("id"))
         if ctx.repeat_count == 1:
             if items:
-                ctx.teller.speak(f"List with {len(items)} items. Item 1: {items[-1].get('value', '')}")
+                ctx.teller.speak(f"List with {len(items)} items. Item 1: {items[0].get('value', '')}")
             else:
                 ctx.teller.speak(f"Empty list at key {char}")
         else:

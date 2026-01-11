@@ -892,20 +892,20 @@ class TestListHandler:
         ctx.back.assert_called_once()
 
     def test_up_moves_toward_item_1(self, mock_context_for_list):
-        """Up arrow moves toward item 1 (higher internal index)."""
+        """Up arrow moves toward item 1 (lower internal index = older)."""
         ctx = mock_context_for_list
         ctx._state["current_index"] = 1  # At middle
         event = make_event(key=SpecialKey.UP)
 
         list_handler(event, ctx)
 
-        # Should move toward item 1 (higher internal index)
-        assert ctx._state["current_index"] == 2
+        # Should move toward item 1 (lower internal index)
+        assert ctx._state["current_index"] == 0
 
     def test_down_moves_away_from_item_1(self, mock_context_for_list):
-        """Down arrow moves away from item 1 (lower internal index)."""
+        """Down arrow moves away from item 1 (higher internal index = newer)."""
         ctx = mock_context_for_list
-        ctx._state["current_index"] = 2  # At item 1
+        ctx._state["current_index"] = 0  # At item 1 (oldest)
         event = make_event(key=SpecialKey.DOWN)
 
         list_handler(event, ctx)
@@ -913,9 +913,9 @@ class TestListHandler:
         assert ctx._state["current_index"] == 1
 
     def test_j_moves_next(self, mock_context_for_list):
-        """'j' key moves to next item (away from item 1)."""
+        """'j' key moves to next item (toward higher numbers = newer)."""
         ctx = mock_context_for_list
-        ctx._state["current_index"] = 2
+        ctx._state["current_index"] = 0
         event = make_event(char="j")
 
         list_handler(event, ctx)
@@ -923,44 +923,45 @@ class TestListHandler:
         assert ctx._state["current_index"] == 1
 
     def test_k_moves_previous(self, mock_context_for_list):
-        """'k' key moves to previous item (toward item 1)."""
+        """'k' key moves to previous item (toward lower numbers = older)."""
         ctx = mock_context_for_list
         ctx._state["current_index"] = 1
         event = make_event(char="k")
 
         list_handler(event, ctx)
 
-        assert ctx._state["current_index"] == 2
+        assert ctx._state["current_index"] == 0
 
     def test_comma_jumps_to_top(self, mock_context_for_list):
-        """Comma jumps to item 1."""
+        """Comma jumps to item 1 (oldest = internal index 0)."""
         ctx = mock_context_for_list
-        ctx._state["current_index"] = 0  # At oldest
+        ctx._state["current_index"] = 2  # At newest
         event = make_event(char=",")
 
         list_handler(event, ctx)
 
-        assert ctx._state["current_index"] == 2  # Now at item 1
+        assert ctx._state["current_index"] == 0  # Now at item 1
 
     def test_period_jumps_to_end(self, mock_context_for_list):
-        """Period jumps to last item (highest number)."""
+        """Period jumps to last item (newest = highest internal index)."""
         ctx = mock_context_for_list
-        ctx._state["current_index"] = 2  # At item 1
+        ctx._state["current_index"] = 0  # At item 1
         event = make_event(char=".")
 
         list_handler(event, ctx)
 
-        assert ctx._state["current_index"] == 0  # Now at oldest
+        assert ctx._state["current_index"] == 2  # Now at newest
 
     def test_enter_reads_current_item(self, mock_context_for_list):
         """Enter reads current item."""
         ctx = mock_context_for_list
+        ctx._state["current_index"] = 0  # At item 1
         event = make_event(key=SpecialKey.ENTER)
 
         list_handler(event, ctx)
 
         assert "Item 1" in ctx.teller.spoken[0]
-        assert "newest" in ctx.teller.spoken[0]
+        assert "oldest" in ctx.teller.spoken[0]
 
     def test_delete_removes_item(self, mock_context_for_list):
         """Delete removes current item."""
@@ -1014,19 +1015,19 @@ class TestListHandler:
         assert "add" in ctx.teller.spoken[0].lower()
 
     def test_ctrl_p_moves_toward_item_1(self, mock_context_for_list):
-        """Ctrl+P moves toward item 1."""
+        """Ctrl+P moves toward item 1 (lower internal index = older)."""
         ctx = mock_context_for_list
         ctx._state["current_index"] = 1
         event = make_ctrl_event("p")
 
         list_handler(event, ctx)
 
-        assert ctx._state["current_index"] == 2
+        assert ctx._state["current_index"] == 0
 
     def test_ctrl_n_moves_away_from_item_1(self, mock_context_for_list):
-        """Ctrl+N moves away from item 1."""
+        """Ctrl+N moves away from item 1 (higher internal index = newer)."""
         ctx = mock_context_for_list
-        ctx._state["current_index"] = 2
+        ctx._state["current_index"] = 0
         event = make_ctrl_event("n")
 
         list_handler(event, ctx)
