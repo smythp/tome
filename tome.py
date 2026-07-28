@@ -17,6 +17,10 @@ from types import FrameType
 from typing import Callable
 
 
+class _ShutdownRequested(BaseException):
+    """Internal control flow used to unwind startup after handled shutdown."""
+
+
 def get_default_db() -> str:
     """Get default database path (~/.tome/lore.db), creating dir if needed."""
     tome_dir = os.path.expanduser("~/.tome")
@@ -68,6 +72,7 @@ class App:
         self._shutdown_started = False
         self._modes_registered = False
         self._previous_signal_handlers: dict[int, Callable | int | None] = {}
+        self._unwind_on_signal = False
 
         # Register mode switch hook to reset repeat tracking
         self._original_switch = self.mode.switch
@@ -129,6 +134,7 @@ class App:
         """Start the application."""
         self._begin_start()
         if block:
+            self._unwind_on_signal = True
             self._install_signal_handlers()
         try:
             self._start()
@@ -137,6 +143,8 @@ class App:
 
             while self._running:
                 time.sleep(0.1)
+        except _ShutdownRequested:
+            pass
         except KeyboardInterrupt:
             self.request_shutdown()
         except Exception:
@@ -146,6 +154,7 @@ class App:
             if block:
                 self.shutdown()
                 self._restore_signal_handlers()
+                self._unwind_on_signal = False
 
     def _begin_start(self) -> None:
         """Publish startup state before signals or listener callbacks can fire."""
@@ -156,25 +165,38 @@ class App:
 
     def _start(self) -> None:
         """Start modes, welcome output, and listener."""
-        if self._shutdown_started:
-            return
+        self._raise_if_shutdown()
 
         try:
             # Register modes
             self._register_modes()
+            self._raise_if_shutdown()
 
             # Start in read mode
             self.mode.switch("read")
+            self._raise_if_shutdown()
 
             # Speak welcome
             self.teller.speak("Tome of lore")
-            if self._shutdown_started:
-                return
+            self._raise_if_shutdown()
 
-            self.listener.start(self._on_key)
+            self._start_listener()
+            self._raise_if_shutdown()
+        except _ShutdownRequested:
+            raise
         except Exception:
             self.shutdown()
             raise
+
+    def _raise_if_shutdown(self) -> None:
+        """Stop startup from continuing after callbacks request shutdown."""
+        if self._shutdown_started:
+            raise _ShutdownRequested()
+
+    def _start_listener(self) -> None:
+        """Start the listener at the final startup boundary."""
+        self._raise_if_shutdown()
+        self.listener.start(self._on_key)
 
     def request_shutdown(self) -> None:
         """Request application shutdown from callbacks or signal handlers."""
@@ -206,6 +228,8 @@ class App:
     def _handle_signal(self, signum: int, frame: FrameType | None) -> None:
         """Convert termination signals into ordered shutdown."""
         self.request_shutdown()
+        if self._unwind_on_signal:
+            raise _ShutdownRequested()
 
     def _install_signal_handlers(self) -> None:
         """Install signal handlers for blocking production runs."""

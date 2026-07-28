@@ -73,6 +73,34 @@ class CallbackDuringStartListener:
         self.running = False
 
 
+class RecordingListener:
+    def __init__(self):
+        self.started = False
+        self.stopped = False
+
+    def start(self, callback):
+        self.started = True
+
+    def stop(self):
+        self.stopped = True
+
+
+class ShutdownOnSpeechTeller:
+    def __init__(self, trigger):
+        self.trigger = trigger
+        self.spoken = []
+        self.stopped = False
+        self.app = None
+
+    def speak(self, text, speed=270, wait=False):
+        self.spoken.append(text)
+        if text == self.trigger:
+            self.app.request_shutdown()
+
+    def stop(self):
+        self.stopped = True
+
+
 def process_exists(pid):
     try:
         os.kill(pid, 0)
@@ -216,6 +244,68 @@ def test_callback_shutdown_during_listener_start_is_not_resurrected(tmp_path, ca
     assert listener.running is False
 
 
+def test_shutdown_during_mode_registration_aborts_remaining_startup(tmp_path):
+    class ShutdownDuringRegisterApp(App):
+        def _register_modes(self):
+            super()._register_modes()
+            self.request_shutdown()
+
+    listener = RecordingListener()
+    app = ShutdownDuringRegisterApp(
+        db_path=str(tmp_path / 'lore.db'),
+        teller_mode='text',
+        listener=listener,
+    )
+
+    app.run(block=False)
+
+    assert app.running is False
+    assert listener.started is False
+    assert listener.stopped is True
+    assert app.mode.current is None
+
+
+def test_shutdown_during_initial_mode_announcement_aborts_remaining_startup(tmp_path):
+    listener = RecordingListener()
+    app = App(
+        db_path=str(tmp_path / 'lore.db'),
+        teller_mode='text',
+        listener=listener,
+    )
+    teller = ShutdownOnSpeechTeller('Read from tome')
+    teller.app = app
+    app.teller = teller
+    app.mode._teller = teller
+
+    app.run(block=False)
+
+    assert teller.spoken == ['Read from tome']
+    assert teller.stopped is True
+    assert app.running is False
+    assert listener.started is False
+    assert listener.stopped is True
+
+
+def test_sigterm_at_pre_listener_boundary_aborts_listener_start(tmp_path):
+    class SigtermAtListenerBoundaryApp(App):
+        def _start_listener(self):
+            self._handle_signal(signal.SIGTERM, None)
+            super()._start_listener()
+
+    listener = RecordingListener()
+    app = SigtermAtListenerBoundaryApp(
+        db_path=str(tmp_path / 'lore.db'),
+        teller_mode='text',
+        listener=listener,
+    )
+
+    app.run(block=True)
+
+    assert app.running is False
+    assert listener.started is False
+    assert listener.stopped is True
+
+
 def test_redirected_text_output_survives_quit(tmp_path):
     result = run_python(
         f'''
@@ -323,6 +413,61 @@ def test_sigterm_reaps_tome_owned_espeak_children(tmp_path, fake_espeak):
     pids = read_pids(pid_file)
     assert pids
     assert all(not process_exists(pid) for pid in pids)
+
+
+def test_blocking_run_sigterm_during_normal_loop_exits_cleanly(tmp_path):
+    proc = subprocess.Popen(
+        [
+            sys.executable,
+            '-c',
+            textwrap.dedent(
+                f'''
+                from tome import App
+
+                class ReadyListener:
+                    def start(self, callback):
+                        print('ready', flush=True)
+
+                    def stop(self):
+                        print('stopped', flush=True)
+
+                app = App(db_path={str(tmp_path / 'lore.db')!r}, teller_mode='text', listener=ReadyListener())
+                app.run(block=True)
+                print('done', flush=True)
+                '''
+            ),
+        ],
+        cwd=ROOT,
+        env=headless_env(),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+
+    try:
+        assert proc.stdout is not None
+        lines = []
+        deadline = time.time() + 5
+        while time.time() < deadline:
+            line = proc.stdout.readline()
+            if line:
+                lines.append(line.strip())
+                if line.strip() == 'ready':
+                    break
+        assert 'ready' in lines
+        os.kill(proc.pid, signal.SIGTERM)
+        stdout, stderr = proc.communicate(timeout=10)
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+            proc.wait(timeout=5)
+
+    all_stdout = '\n'.join(lines)
+    if stdout:
+        all_stdout = f'{all_stdout}\n{stdout}'
+    assert proc.returncode == 0, stderr
+    assert 'stopped' in all_stdout
+    assert 'done' in all_stdout
 
 
 def test_listener_start_failure_cleans_owned_startup_resources(tmp_path, fake_espeak):
