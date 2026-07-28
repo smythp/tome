@@ -1320,7 +1320,16 @@ class TestReadHandler:
 
         read_handler(event, ctx)
 
-        ctx.switch.assert_called_with("list")
+        ctx.switch.assert_called_with(
+            "list",
+            setup={
+                "list_id": 20,
+                "key": "l",
+                "buffer_id": 1,
+                "items": [{"value": "item1"}],
+                "current_index": 0,
+            },
+        )
 
     def test_non_alnum_ignored(self, mock_context_for_read):
         """Non-alphanumeric keys are ignored."""

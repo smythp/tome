@@ -64,6 +64,7 @@ class App:
             self.store,
             self.mark,
             quit_callback=self.request_shutdown,
+            on_switch=lambda _old, _new: self._reset_repeat(),
         )
 
         # Consecutive key tracking (reset on mode change)
@@ -76,19 +77,10 @@ class App:
         self._previous_signal_handlers: dict[int, Callable | int | None] = {}
         self._unwind_on_signal = False
 
-        # Register mode switch hook to reset repeat tracking
-        self._original_switch = self.mode.switch
-        self.mode.switch = self._switch_with_reset
-
     @property
     def running(self) -> bool:
         """Return whether the app run loop is active."""
         return self._running
-
-    def _switch_with_reset(self, name: str, *, silent: bool = False) -> None:
-        """Wrap mode.switch to reset repeat tracking on mode change."""
-        self._reset_repeat()
-        self._original_switch(name, silent=silent)
 
     def _reset_repeat(self) -> None:
         """Reset consecutive key tracking."""

@@ -66,7 +66,7 @@ class ModeContext:
     teller: Teller
     store: Any  # Actually store.store.Store, typed as Any to avoid circular import
     mark: Any  # Actually mark.mark.Mark, typed as Any to avoid circular import
-    switch: Callable[..., None]  # switch(mode_name, *, silent=False)
+    switch: Callable[..., None]  # switch(mode_name, *, silent=False, setup=None)
     back: Callable[[], None]  # Return to previous mode
     current_mode: str
     previous_mode: str | None
@@ -104,6 +104,7 @@ class Mode:
         store: Any,
         mark: Any = None,
         quit_callback: Callable[[], None] | None = None,
+        on_switch: Callable[[str | None, str], None] | None = None,
     ):
         """
         Create Mode instance.
@@ -113,6 +114,7 @@ class Mode:
             store: Data storage (store.store.Store)
             mark: Navigation state (mark.mark.Mark), optional
             quit_callback: Optional application shutdown callback.
+            on_switch: Optional callback called for each successful switch request.
         """
         self._teller = teller
         self._store = store
@@ -122,6 +124,7 @@ class Mode:
         self._modes: dict[str, ModeConfig] = {}
         self._state: dict[str, dict] = {}  # Per-mode state dicts
         self._quit_callback = quit_callback
+        self._on_switch = on_switch
 
     @property
     def current(self) -> str | None:
@@ -175,13 +178,21 @@ class Mode:
         if name not in self._state:
             self._state[name] = {}
 
-    def switch(self, mode_name: str, *, silent: bool = False) -> None:
+    def switch(
+        self,
+        mode_name: str,
+        *,
+        silent: bool = False,
+        setup: dict | None = None,
+    ) -> None:
         """
         Switch to a different mode.
 
         Args:
             mode_name: Name of the mode to switch to
             silent: If True, don't speak the mode message
+            setup: Optional replacement state for the destination mode. This is
+                   applied before on_enter/message hooks run.
 
         Raises:
             TypeError: If mode_name is not a string
@@ -192,6 +203,20 @@ class Mode:
 
         if mode_name not in self._modes:
             raise KeyError(f"Mode '{mode_name}' is unknown - not registered")
+
+        if setup is not None and not isinstance(setup, dict):
+            raise TypeError(f"setup must be a dict, got {type(setup).__name__}")
+
+        previous_mode = self._current
+        if self._on_switch:
+            try:
+                self._on_switch(previous_mode, mode_name)
+            except Exception:
+                logger.exception("on_switch raised exception")
+
+        if setup is not None:
+            self._state[mode_name].clear()
+            self._state[mode_name].update(setup)
 
         # Call on_exit for current mode
         if self._current is not None and self._current in self._modes:
@@ -278,6 +303,7 @@ class Mode:
             handler(event, context)
         except Exception:
             logger.exception(f"Handler for mode '{current_mode_name}' raised exception")
+            self._state[current_mode_name].clear()
             # Don't re-raise - allow continued operation
 
     def list_modes(self) -> list[str]:

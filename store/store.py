@@ -136,6 +136,27 @@ class Store:
         finally:
             conn.close()
 
+    def get_buffer_entry(self, buffer_id: int) -> Optional[Entry]:
+        """Get the active buffer entry for a buffer ID.
+
+        Args:
+            buffer_id: Logical buffer ID stored in buffer entries' value column.
+
+        Returns:
+            Entry dict or None if the buffer is not found.
+        """
+        conn, cursor = self._connect()
+        try:
+            cursor.execute("""
+                SELECT * FROM lore
+                WHERE data_type = ? AND value = ?
+                AND (deleted IS NULL OR deleted = 0)
+                ORDER BY id DESC LIMIT 1
+            """, (TYPE_BUFFER, str(buffer_id)))
+            return cursor.fetchone()
+        finally:
+            conn.close()
+
     def set(
         self,
         key: str,

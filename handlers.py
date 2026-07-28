@@ -479,29 +479,6 @@ def history_handler(event: KeyEvent, ctx: ModeContext) -> None:
 
     state = ctx.get_state()
 
-    # Check if we need to initialize from setup data
-    last_retrieved = (
-        getattr(ctx.mark, "last_retrieved", None) if hasattr(ctx, "mark") else None
-    )
-    setup = (
-        last_retrieved.get("_history_setup")
-        if last_retrieved and isinstance(last_retrieved, dict)
-        else None
-    )
-    if setup and "entries" not in state:
-        state["entries"] = setup.get("entries", [])
-        state["current_index"] = 0
-        state["global_mode"] = False
-        state["key"] = setup.get("key")
-        state["buffer_id"] = setup.get("buffer_id")
-        # Clear setup flag
-        if hasattr(ctx, "mark") and ctx.mark:
-            ctx.mark.last_retrieved = {
-                "value": None,
-                "key": setup.get("key"),
-                "buffer_id": setup.get("buffer_id"),
-            }
-
     entries = state.get("entries", [])
 
     def exit_history():
@@ -722,29 +699,6 @@ def list_handler(event: KeyEvent, ctx: ModeContext) -> None:
     from listener import Modifier
 
     state = ctx.get_state()
-
-    # Check for setup data smuggled via mark.last_retrieved (same pattern as history)
-    last_retrieved = (
-        ctx.mark.last_retrieved if hasattr(ctx, "mark") and ctx.mark else None
-    )
-    setup = (
-        last_retrieved.get("_list_setup")
-        if last_retrieved and isinstance(last_retrieved, dict)
-        else None
-    )
-    if setup and "items" not in state:
-        state["list_id"] = setup.get("list_id")
-        state["key"] = setup.get("key")
-        state["buffer_id"] = setup.get("buffer_id")
-        state["items"] = setup.get("items", [])
-        state["current_index"] = setup.get("current_index", 0)
-        # Clear setup flag
-        if hasattr(ctx, "mark") and ctx.mark:
-            ctx.mark.last_retrieved = {
-                "value": None,
-                "key": setup.get("key"),
-                "buffer_id": setup.get("buffer_id"),
-            }
 
     items = state.get("items", [])
 
@@ -970,25 +924,20 @@ def _enter_history_mode(key: str, buffer_id: int, ctx: ModeContext) -> bool:
         ctx.teller.speak(f"No history for key {key}")
         return False
 
-    # Setup state
-    state = ctx.get_state()  # This gets the current mode's state
-    # We need to setup history mode's state, so switch first then setup
-    # Actually, Mode.switch will give us a fresh state for history mode
-
     ctx.teller.speak(
         f"History for {key}, {len(entries)} entries. Most recent: {entries[0].get('value', '')}"
     )
 
-    # Store setup data in mark for history_handler to pick up
-    ctx.mark.last_retrieved = {
-        "_history_setup": {
+    ctx.switch(
+        "history",
+        setup={
+            "entries": entries,
+            "current_index": 0,
+            "global_mode": False,
             "key": key,
             "buffer_id": buffer_id,
-            "entries": entries,
-        }
-    }
-
-    ctx.switch("history")
+        },
+    )
 
     return True
 
@@ -1030,18 +979,16 @@ def _enter_list_mode(key: str, buffer_id: int, ctx: ModeContext) -> bool:
     else:
         ctx.teller.speak("Empty list")
 
-    # Store setup data in mark for list_handler to pick up (same pattern as history)
-    ctx.mark.last_retrieved = {
-        "_list_setup": {
+    ctx.switch(
+        "list",
+        setup={
             "list_id": list_id,
             "key": key,
             "buffer_id": buffer_id,
             "items": items,
             "current_index": start_index,
-        }
-    }
-
-    ctx.switch("list")
+        },
+    )
     return True
 
 

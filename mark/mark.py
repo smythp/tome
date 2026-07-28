@@ -14,8 +14,8 @@ from typing import Any, Protocol
 class Store(Protocol):
     """Protocol for data store (from store.store.Store)."""
 
-    def get(self, entry_id: int) -> dict | None:
-        """Get entry by id."""
+    def get_buffer_entry(self, buffer_id: int) -> dict | None:
+        """Get an active buffer entry by logical buffer ID."""
         ...
 
 
@@ -71,7 +71,7 @@ class Mark:
         """
         Human-readable breadcrumb from root to current position.
 
-        Returns list of entry content/names from root to current buffer.
+        Returns list of buffer names from root to current buffer.
 
         Raises:
             RuntimeError: If path traversal exceeds 100,000 iterations
@@ -81,7 +81,6 @@ class Mark:
         current_id = self._buffer_id
         max_iterations = 100_000
 
-        # Walk from current up to root, collecting names
         visited = set()
         iterations = 0
         while current_id is not None and current_id not in visited:
@@ -89,19 +88,46 @@ class Mark:
             if iterations > max_iterations:
                 raise RuntimeError(
                     f"Path traversal exceeded {max_iterations} iterations. "
-                    f"This indicates a bug in Store.get() (non-deterministic or pathological data)."
+                    f"This indicates a bug in Store.get_buffer_entry() "
+                    f"(non-deterministic or pathological data)."
                 )
 
             visited.add(current_id)
-            entry = self._store.get(current_id)
+            entry = self._get_buffer_entry(current_id)
             if entry is None:
                 break
-            result.append(entry.get('content', f'buffer-{current_id}'))
-            current_id = entry.get('buffer_id')  # parent
+            result.append(self._buffer_name(entry, current_id))
+            current_id = self._parent_buffer_id(entry)
 
-        # Reverse to get root-to-current order
         result.reverse()
         return result
+
+    def _get_buffer_entry(self, buffer_id: int) -> dict | None:
+        """Resolve a buffer entry using the real Store API, with legacy test fallback."""
+        get_buffer_entry = getattr(self._store, "get_buffer_entry", None)
+        if callable(get_buffer_entry):
+            return get_buffer_entry(buffer_id)
+
+        return self._store.get(buffer_id)
+
+    def _buffer_name(self, entry: dict, buffer_id: int) -> str:
+        """Pick a spoken name for a buffer entry."""
+        if buffer_id == 1 and entry.get("data_type") == "buffer":
+            return "root"
+
+        return (
+            entry.get("key")
+            or entry.get("label")
+            or entry.get("content")
+            or entry.get("value")
+            or f"buffer-{buffer_id}"
+        )
+
+    def _parent_buffer_id(self, entry: dict) -> Any:
+        """Return the parent buffer ID from real Store rows or legacy fixtures."""
+        if "parent_id" in entry:
+            return entry.get("parent_id")
+        return entry.get("buffer_id")
 
     def into(self, buffer_id: int) -> 'Mark':
         """
