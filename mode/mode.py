@@ -125,6 +125,7 @@ class Mode:
         self._state: dict[str, dict] = {}  # Per-mode state dicts
         self._quit_callback = quit_callback
         self._on_switch = on_switch
+        self._switch_generation = 0
 
     @property
     def current(self) -> str | None:
@@ -192,7 +193,8 @@ class Mode:
             mode_name: Name of the mode to switch to
             silent: If True, don't speak the mode message
             setup: Optional replacement state for the destination mode. This is
-                   applied before on_enter/message hooks run.
+                   applied after source on_exit and before destination
+                   on_enter/message hooks run.
 
         Raises:
             TypeError: If mode_name is not a string
@@ -214,10 +216,6 @@ class Mode:
             except Exception:
                 logger.exception("on_switch raised exception")
 
-        if setup is not None:
-            self._state[mode_name].clear()
-            self._state[mode_name].update(setup)
-
         # Call on_exit for current mode
         if self._current is not None and self._current in self._modes:
             config = self._modes[self._current]
@@ -233,6 +231,12 @@ class Mode:
 
         # Update current mode
         self._current = mode_name
+
+        if setup is not None:
+            self._state[mode_name].clear()
+            self._state[mode_name].update(setup)
+
+        self._switch_generation += 1
 
         # Call on_enter for new mode
         config = self._modes[mode_name]
@@ -284,6 +288,7 @@ class Mode:
         # This ensures get_state() always returns this handler's state,
         # even if the handler calls switch() to change modes mid-execution
         current_mode_name = self._current
+        switch_generation = self._switch_generation
 
         # Create context for this handler call
         context = ModeContext(
@@ -303,7 +308,11 @@ class Mode:
             handler(event, context)
         except Exception:
             logger.exception(f"Handler for mode '{current_mode_name}' raised exception")
-            self._state[current_mode_name].clear()
+            if (
+                self._switch_generation == switch_generation
+                or self._current != current_mode_name
+            ):
+                self._state[current_mode_name].clear()
             # Don't re-raise - allow continued operation
 
     def list_modes(self) -> list[str]:

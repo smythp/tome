@@ -284,6 +284,30 @@ class TestModeSwitching:
 
         assert mode.current == 'read'
 
+    def test_invalid_setup_type_does_not_mutate_current_mode(self):
+        """setup is validated before switch callbacks or lifecycle hooks run."""
+        from mode import Mode
+
+        teller = MockTeller()
+        store = MockStore()
+        calls = []
+        mode = Mode(
+            teller=teller,
+            store=store,
+            on_switch=lambda _source, _dest: calls.append('switch'),
+        )
+
+        mode.register('read', lambda e, c: None, on_exit=lambda: calls.append('exit'))
+        mode.register('history', lambda e, c: None)
+        mode.switch('read')
+        calls.clear()
+
+        with pytest.raises(TypeError, match="setup must be a dict"):
+            mode.switch('history', setup=['not', 'a', 'dict'])
+
+        assert mode.current == 'read'
+        assert calls == []
+
 
 # =============================================================================
 # Event Routing Tests
@@ -686,6 +710,47 @@ class TestHandlerExceptions:
 
         assert 'call 2' in teller.spoken
 
+    def test_handler_exception_after_same_mode_setup_keeps_destination_state(self):
+        """A post-switch handler failure must not clear installed same-mode setup."""
+        from mode import Mode
+
+        teller = MockTeller()
+        store = MockStore()
+        mode = Mode(teller=teller, store=store)
+
+        def handler(event, context):
+            context.get_state()['partial'] = event.char
+            context.switch('read', silent=True, setup={'ready': 'destination'})
+            raise RuntimeError("failed after switch")
+
+        mode.register('read', handler)
+        mode.switch('read')
+
+        mode.handle(make_char_event('a'))
+
+        assert mode.current == 'read'
+        assert mode._state['read'] == {'ready': 'destination'}
+
+    def test_handler_failed_switch_clears_partial_source_state(self):
+        """If switch raises before committing, handler cleanup clears stale state."""
+        from mode import Mode
+
+        teller = MockTeller()
+        store = MockStore()
+        mode = Mode(teller=teller, store=store)
+
+        def handler(event, context):
+            context.get_state()['partial'] = event.char
+            context.switch('unknown')
+
+        mode.register('read', handler)
+        mode.switch('read')
+
+        mode.handle(make_char_event('a'))
+
+        assert mode.current == 'read'
+        assert mode._state['read'] == {}
+
 
 # =============================================================================
 # Edge Cases
@@ -1046,6 +1111,38 @@ class TestOnEnterOnExit:
         mode.switch('options')
 
         assert calls == ['enter_read', 'exit_read', 'enter_options']
+
+    def test_same_mode_setup_is_applied_after_on_exit_before_on_enter(self):
+        """Same-mode on_exit observes source state; on_enter observes setup state."""
+        from mode import Mode
+
+        teller = MockTeller()
+        store = MockStore()
+        mode = Mode(teller=teller, store=store)
+        calls = []
+
+        def on_exit():
+            calls.append(('exit', dict(mode._state['read'])))
+
+        def on_enter():
+            calls.append(('enter', dict(mode._state['read'])))
+
+        mode.register(
+            'read',
+            lambda e, c: None,
+            on_enter=on_enter,
+            on_exit=on_exit,
+        )
+        mode.switch('read', silent=True, setup={'old': 'source'})
+        calls.clear()
+
+        mode.switch('read', silent=True, setup={'new': 'destination'})
+
+        assert calls == [
+            ('exit', {'old': 'source'}),
+            ('enter', {'new': 'destination'}),
+        ]
+        assert mode._state['read'] == {'new': 'destination'}
 
     def test_on_enter_exception_logged_not_raised(self):
         """on_enter exception is logged but doesn't prevent switch."""
