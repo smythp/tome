@@ -323,10 +323,12 @@ class TestEspeakHandler:
         handler.speak("test", wait=False)
         assert mock_subprocess["Popen"].called
 
-    def test_wait_true_uses_call(self, handler, mock_subprocess):
-        """wait=True uses call (blocking)."""
+    def test_wait_true_uses_tracked_popen_wait(self, handler, mock_subprocess):
+        """wait=True tracks the child and waits for it."""
         handler.speak("test", wait=True)
-        assert mock_subprocess["call"].called
+        assert mock_subprocess["Popen"].called
+        mock_subprocess["process"].wait.assert_called()
+        assert not mock_subprocess["call"].called
 
     def test_stop_kills_process(self, handler, mock_subprocess):
         """stop() terminates running espeak process."""

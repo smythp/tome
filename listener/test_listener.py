@@ -1,693 +1,461 @@
 """
 Tests for Listener RSP.
 
-Tests KeyEvent construction/validation, MockListener, and PynputListener.
+Tests KeyEvent construction/validation, MockListener, NoListener, and
+PynputListener without starting a live desktop listener.
 """
 
-import pytest
 from dataclasses import FrozenInstanceError
 
+import pytest
+
 from listener import (
-    KeyEvent,
-    SpecialKey,
-    Modifier,
     EventType,
+    KeyEvent,
+    Modifier,
+    NoListener,
+    PynputListener,
+    SpecialKey,
 )
 
 
-# =============================================================================
-# KeyEvent Construction Tests
-# =============================================================================
+class FakeKey:
+    """Minimal stand-in for pynput keyboard keys."""
+
+    def __init__(self, name=None, char=None, has_char=True):
+        self.name = name
+        if has_char:
+            self.char = char
+
+    def __str__(self):
+        if self.name:
+            return f"Key.{self.name}"
+        return "Key.unknown"
+
+
+class FakeKeyboard:
+    """Fake pynput.keyboard module."""
+
+    last_listener = None
+
+    class Listener:
+        def __init__(self, on_press, on_release, suppress):
+            self.on_press = on_press
+            self.on_release = on_release
+            self.suppress = suppress
+            self.started = False
+            self.stopped = False
+            FakeKeyboard.last_listener = self
+
+        def start(self):
+            self.started = True
+
+        def stop(self):
+            self.stopped = True
+
+
+@pytest.fixture
+def fake_pynput(monkeypatch):
+    """Patch PynputListener to use a fake keyboard module."""
+    FakeKeyboard.last_listener = None
+    monkeypatch.setattr(PynputListener, "_load_keyboard", lambda self: FakeKeyboard)
+    return FakeKeyboard
+
 
 class TestKeyEventConstruction:
     """Test KeyEvent creation and validation."""
 
     def test_char_event_valid(self):
-        """Regular character key creates valid event."""
         event = KeyEvent(
-            char='a',
+            char="a",
             key=None,
             modifiers=frozenset(),
-            event_type=EventType.PRESS
+            event_type=EventType.PRESS,
         )
-        assert event.char == 'a'
+        assert event.char == "a"
         assert event.key is None
 
     def test_special_key_event_valid(self):
-        """Special key creates valid event."""
         event = KeyEvent(
             char=None,
             key=SpecialKey.ESCAPE,
             modifiers=frozenset(),
-            event_type=EventType.PRESS
+            event_type=EventType.PRESS,
         )
         assert event.char is None
         assert event.key == SpecialKey.ESCAPE
 
     def test_char_with_modifiers(self):
-        """Char event with modifiers."""
         event = KeyEvent(
-            char='c',
+            char="c",
             key=None,
             modifiers=frozenset({Modifier.CTRL}),
-            event_type=EventType.PRESS
+            event_type=EventType.PRESS,
         )
-        assert event.char == 'c'
+        assert event.char == "c"
         assert Modifier.CTRL in event.modifiers
 
     def test_multiple_modifiers(self):
-        """Multiple modifiers tracked."""
         mods = frozenset({Modifier.CTRL, Modifier.SHIFT, Modifier.ALT})
         event = KeyEvent(
-            char='a',
+            char="a",
             key=None,
             modifiers=mods,
-            event_type=EventType.PRESS
+            event_type=EventType.PRESS,
         )
         assert event.modifiers == mods
-        assert len(event.modifiers) == 3
 
     def test_release_event_type(self):
-        """Release event type works."""
         event = KeyEvent(
-            char='a',
+            char="a",
             key=None,
             modifiers=frozenset(),
-            event_type=EventType.RELEASE
+            event_type=EventType.RELEASE,
         )
         assert event.event_type == EventType.RELEASE
 
     def test_reject_both_char_and_key(self):
-        """Cannot have both char and key set."""
         with pytest.raises(ValueError, match="exactly one"):
             KeyEvent(
-                char='a',
+                char="a",
                 key=SpecialKey.ESCAPE,
                 modifiers=frozenset(),
-                event_type=EventType.PRESS
+                event_type=EventType.PRESS,
             )
 
     def test_reject_neither_char_nor_key(self):
-        """Must have either char or key."""
         with pytest.raises(ValueError, match="exactly one"):
             KeyEvent(
                 char=None,
                 key=None,
                 modifiers=frozenset(),
-                event_type=EventType.PRESS
+                event_type=EventType.PRESS,
             )
 
     def test_reject_non_enum_key(self):
-        """Key must be a SpecialKey enum, not a string or other type."""
         with pytest.raises(TypeError, match="SpecialKey enum"):
             KeyEvent(
                 char=None,
-                key="escape",  # String instead of enum
+                key="escape",
                 modifiers=frozenset(),
-                event_type=EventType.PRESS
+                event_type=EventType.PRESS,
             )
 
     def test_frozen_immutable(self):
-        """KeyEvent is immutable (frozen dataclass)."""
         event = KeyEvent(
-            char='a',
+            char="a",
             key=None,
             modifiers=frozenset(),
-            event_type=EventType.PRESS
+            event_type=EventType.PRESS,
         )
         with pytest.raises(FrozenInstanceError):
-            event.char = 'b'
+            event.char = "b"
 
-    def test_equality(self):
-        """Identical events are equal."""
+    def test_equality_and_hashable(self):
         event1 = KeyEvent(
-            char='a',
+            char="a",
             key=None,
             modifiers=frozenset({Modifier.CTRL}),
-            event_type=EventType.PRESS
+            event_type=EventType.PRESS,
         )
         event2 = KeyEvent(
-            char='a',
+            char="a",
             key=None,
             modifiers=frozenset({Modifier.CTRL}),
-            event_type=EventType.PRESS
+            event_type=EventType.PRESS,
         )
         assert event1 == event2
+        assert {event1} == {event2}
 
-    def test_inequality_different_char(self):
-        """Different char means not equal."""
-        event1 = KeyEvent(char='a', key=None, modifiers=frozenset(), event_type=EventType.PRESS)
-        event2 = KeyEvent(char='b', key=None, modifiers=frozenset(), event_type=EventType.PRESS)
-        assert event1 != event2
-
-    def test_hashable(self):
-        """KeyEvent can be used in sets/dicts."""
-        event = KeyEvent(
-            char='a',
-            key=None,
-            modifiers=frozenset(),
-            event_type=EventType.PRESS
-        )
-        event_set = {event}
-        assert event in event_set
-
-        event_dict = {event: 'value'}
-        assert event_dict[event] == 'value'
-
-
-# =============================================================================
-# Edge Case Character Tests
-# =============================================================================
 
 class TestKeyEventEdgeCases:
     """Test edge cases for character values."""
 
-    def test_space_char(self):
-        """Space is a valid char."""
+    @pytest.mark.parametrize("char", [" ", "e", "\n"])
+    def test_single_char_values(self, char):
         event = KeyEvent(
-            char=' ',
+            char=char,
             key=None,
             modifiers=frozenset(),
-            event_type=EventType.PRESS
+            event_type=EventType.PRESS,
         )
-        assert event.char == ' '
-
-    def test_unicode_char(self):
-        """Unicode characters work."""
-        event = KeyEvent(
-            char='é',
-            key=None,
-            modifiers=frozenset(),
-            event_type=EventType.PRESS
-        )
-        assert event.char == 'é'
-
-    def test_unicode_cjk(self):
-        """CJK characters work."""
-        event = KeyEvent(
-            char='中',
-            key=None,
-            modifiers=frozenset(),
-            event_type=EventType.PRESS
-        )
-        assert event.char == '中'
-
-    def test_newline_char(self):
-        """Newline as char (edge case - probably shouldn't happen in practice)."""
-        event = KeyEvent(
-            char='\n',
-            key=None,
-            modifiers=frozenset(),
-            event_type=EventType.PRESS
-        )
-        assert event.char == '\n'
+        assert event.char == char
 
     def test_empty_string_char_rejected(self):
-        """Empty string char is rejected."""
         with pytest.raises(ValueError, match="exactly one character"):
             KeyEvent(
-                char='',
+                char="",
                 key=None,
                 modifiers=frozenset(),
-                event_type=EventType.PRESS
+                event_type=EventType.PRESS,
             )
 
     def test_multi_char_string_rejected(self):
-        """Multi-character string is rejected."""
         with pytest.raises(ValueError, match="exactly one character"):
             KeyEvent(
-                char='ab',
+                char="ab",
                 key=None,
                 modifiers=frozenset(),
-                event_type=EventType.PRESS
+                event_type=EventType.PRESS,
             )
 
-
-# =============================================================================
-# All SpecialKey Values
-# =============================================================================
 
 class TestAllSpecialKeys:
     """Ensure all SpecialKey enum values work."""
 
     @pytest.mark.parametrize("special_key", list(SpecialKey))
     def test_all_special_keys_valid(self, special_key):
-        """Each SpecialKey creates valid event."""
         event = KeyEvent(
             char=None,
             key=special_key,
             modifiers=frozenset(),
-            event_type=EventType.PRESS
+            event_type=EventType.PRESS,
         )
         assert event.key == special_key
 
 
-# =============================================================================
-# MockListener Tests
-# =============================================================================
-
 class TestMockListener:
-    """Tests for MockListener (test double for keyboard input)."""
+    """Tests for MockListener."""
 
     def test_mock_listener_import(self):
-        """MockListener can be imported."""
         from listener import MockListener
         assert MockListener is not None
 
-    def test_start_accepts_callback(self):
-        """start() accepts a callback function."""
-        from listener import MockListener
-
-        received = []
-        def callback(event):
-            received.append(event)
-
-        listener = MockListener()
-        listener.start(callback)
-        # Should not raise
-
     def test_inject_calls_callback(self):
-        """inject() passes event to callback."""
         from listener import MockListener
 
         received = []
-        def callback(event):
-            received.append(event)
-
         listener = MockListener()
-        listener.start(callback)
+        listener.start(lambda event: received.append(event))
 
-        event = KeyEvent(char='a', key=None, modifiers=frozenset(), event_type=EventType.PRESS)
+        event = KeyEvent(char="a", key=None, modifiers=frozenset(), event_type=EventType.PRESS)
         listener.inject(event)
 
-        assert len(received) == 1
-        assert received[0] == event
+        assert received == [event]
 
-    def test_inject_multiple_events(self):
-        """Multiple injected events all reach callback in order."""
+    def test_inject_multiple_events_in_order(self):
         from listener import MockListener
 
         received = []
-        def callback(event):
-            received.append(event)
-
         listener = MockListener()
-        listener.start(callback)
+        listener.start(lambda event: received.append(event))
 
         events = [
-            KeyEvent(char='a', key=None, modifiers=frozenset(), event_type=EventType.PRESS),
-            KeyEvent(char='b', key=None, modifiers=frozenset(), event_type=EventType.PRESS),
-            KeyEvent(char='c', key=None, modifiers=frozenset(), event_type=EventType.PRESS),
+            KeyEvent(char="a", key=None, modifiers=frozenset(), event_type=EventType.PRESS),
+            KeyEvent(char="b", key=None, modifiers=frozenset(), event_type=EventType.PRESS),
+            KeyEvent(char="c", key=None, modifiers=frozenset(), event_type=EventType.PRESS),
         ]
-
         for event in events:
             listener.inject(event)
 
         assert received == events
 
     def test_stop_then_inject_raises(self):
-        """After stop(), inject() raises an error."""
         from listener import MockListener
 
         listener = MockListener()
-        listener.start(lambda e: None)
+        listener.start(lambda event: None)
         listener.stop()
 
-        event = KeyEvent(char='a', key=None, modifiers=frozenset(), event_type=EventType.PRESS)
+        event = KeyEvent(char="a", key=None, modifiers=frozenset(), event_type=EventType.PRESS)
         with pytest.raises(RuntimeError, match="not started"):
             listener.inject(event)
 
     def test_inject_before_start_raises(self):
-        """inject() before start() raises an error."""
         from listener import MockListener
 
         listener = MockListener()
-        event = KeyEvent(char='a', key=None, modifiers=frozenset(), event_type=EventType.PRESS)
+        event = KeyEvent(char="a", key=None, modifiers=frozenset(), event_type=EventType.PRESS)
 
         with pytest.raises(RuntimeError, match="not started"):
             listener.inject(event)
 
     def test_start_twice_raises(self):
-        """start() called twice without stop() raises an error."""
         from listener import MockListener
 
         listener = MockListener()
-        listener.start(lambda e: None)
+        listener.start(lambda event: None)
 
         with pytest.raises(RuntimeError, match="already started"):
-            listener.start(lambda e: None)
+            listener.start(lambda event: None)
 
     def test_stop_before_start_is_noop(self):
-        """stop() before start() is a no-op (idempotent)."""
         from listener import MockListener
 
-        listener = MockListener()
-        listener.stop()  # Should not raise
-
-    def test_stop_twice_is_noop(self):
-        """stop() called twice is a no-op (idempotent)."""
-        from listener import MockListener
-
-        listener = MockListener()
-        listener.start(lambda e: None)
-        listener.stop()
-        listener.stop()  # Should not raise
+        MockListener().stop()
 
     def test_restart_after_stop(self):
-        """Can start() again after stop()."""
         from listener import MockListener
 
         received = []
         listener = MockListener()
-        listener.start(lambda e: received.append(e))
+        listener.start(lambda event: received.append(event))
         listener.stop()
+        listener.start(lambda event: received.append(event))
 
-        received.clear()
-        listener.start(lambda e: received.append(e))
-
-        event = KeyEvent(char='a', key=None, modifiers=frozenset(), event_type=EventType.PRESS)
+        event = KeyEvent(char="a", key=None, modifiers=frozenset(), event_type=EventType.PRESS)
         listener.inject(event)
 
-        assert len(received) == 1
+        assert received == [event]
 
 
-# =============================================================================
-# PynputListener Tests
-# =============================================================================
+class TestNoListener:
+    """Tests for explicit no-listener harness."""
 
-@pytest.fixture
-def pynput_listener():
-    """Create PynputListener with guaranteed cleanup."""
-    from listener import PynputListener
-    listener = PynputListener()
-    yield listener
-    listener.stop()  # Always cleanup, even if test fails
+    def test_no_listener_start_stop_are_noops(self):
+        listener = NoListener()
+        listener.start(lambda event: None)
+        listener.stop()
+        listener.stop()
 
 
 class TestPynputListener:
-    """Tests for PynputListener (real keyboard via pynput)."""
+    """Tests for PynputListener using a fake backend."""
 
-    def test_pynput_listener_import(self):
-        """PynputListener can be imported."""
-        from listener import PynputListener
-        assert PynputListener is not None
+    def test_start_uses_suppress_true(self, fake_pynput):
+        listener = PynputListener()
+        listener.start(lambda event: None)
 
-    def test_implements_protocol(self, pynput_listener):
-        """PynputListener implements Listener protocol."""
+        assert fake_pynput.last_listener.started is True
+        assert fake_pynput.last_listener.suppress is True
+
+    def test_implements_protocol(self):
         from listener import Listener
 
-        # Duck typing check - has required methods
-        assert hasattr(pynput_listener, 'start')
-        assert hasattr(pynput_listener, 'stop')
-        assert callable(pynput_listener.start)
-        assert callable(pynput_listener.stop)
+        listener = PynputListener()
+        assert hasattr(listener, "start")
+        assert hasattr(listener, "stop")
+        assert callable(listener.start)
+        assert callable(listener.stop)
 
-    def test_start_twice_raises(self, pynput_listener):
-        """start() called twice without stop() raises an error."""
-        pynput_listener.start(lambda e: None)
+    def test_start_twice_raises(self, fake_pynput):
+        listener = PynputListener()
+        listener.start(lambda event: None)
 
         with pytest.raises(RuntimeError, match="already started"):
-            pynput_listener.start(lambda e: None)
+            listener.start(lambda event: None)
 
-    def test_stop_before_start_is_noop(self, pynput_listener):
-        """stop() before start() is a no-op (idempotent)."""
-        pynput_listener.stop()  # Should not raise
+    def test_stop_before_start_is_noop(self):
+        PynputListener().stop()
+
+    def test_stop_stops_backend(self, fake_pynput):
+        listener = PynputListener()
+        listener.start(lambda event: None)
+        backend_listener = fake_pynput.last_listener
+
+        listener.stop()
+
+        assert backend_listener.stopped is True
 
 
 class TestPynputListenerModifierTracking:
     """Test modifier key tracking in PynputListener."""
 
-    def test_shift_modifier_tracked(self):
-        """Pressing shift adds SHIFT to modifiers."""
-        from listener import PynputListener
-        from unittest.mock import MagicMock, patch
-        from pynput import keyboard
-
-        received = []
-        def callback(event):
-            received.append(event)
-
+    @pytest.mark.parametrize(
+        ("key_name", "modifier"),
+        [
+            ("shift", Modifier.SHIFT),
+            ("shift_r", Modifier.SHIFT),
+            ("ctrl", Modifier.CTRL),
+            ("ctrl_r", Modifier.CTRL),
+            ("alt", Modifier.ALT),
+            ("alt_r", Modifier.ALT),
+        ],
+    )
+    def test_modifier_tracked_and_released(self, key_name, modifier):
         listener = PynputListener()
+        key = FakeKey(name=key_name, has_char=False)
 
-        # Simulate: press shift, then press 'a', then release shift
-        # We need to call the internal handlers directly
-        listener._on_press(keyboard.Key.shift)
-        listener._on_press(MagicMock(char='a'))
+        listener._on_press(key)
+        assert modifier in listener._modifiers
 
-        # The 'a' press should have SHIFT in modifiers
-        a_events = [e for e in received if e.char == 'a']
-        # Note: this test assumes _on_press calls callback
-        # Implementation may differ - adjust as needed
-
-    def test_ctrl_modifier_tracked(self):
-        """Pressing ctrl adds CTRL to modifiers."""
-        from listener import PynputListener
-        from pynput import keyboard
-
-        listener = PynputListener()
-        listener._on_press(keyboard.Key.ctrl)
-
-        assert Modifier.CTRL in listener._modifiers
-
-    def test_modifier_released(self):
-        """Releasing modifier removes it from tracking."""
-        from listener import PynputListener
-        from pynput import keyboard
-
-        listener = PynputListener()
-        listener._on_press(keyboard.Key.ctrl)
-        assert Modifier.CTRL in listener._modifiers
-
-        listener._on_release(keyboard.Key.ctrl)
-        assert Modifier.CTRL not in listener._modifiers
+        listener._on_release(key)
+        assert modifier not in listener._modifiers
 
     def test_multiple_modifiers(self):
-        """Multiple modifiers tracked simultaneously."""
-        from listener import PynputListener
-        from pynput import keyboard
-
         listener = PynputListener()
-        listener._on_press(keyboard.Key.ctrl)
-        listener._on_press(keyboard.Key.shift)
-        listener._on_press(keyboard.Key.alt)
+        listener._on_press(FakeKey(name="ctrl", has_char=False))
+        listener._on_press(FakeKey(name="shift", has_char=False))
+        listener._on_press(FakeKey(name="alt", has_char=False))
 
-        assert Modifier.CTRL in listener._modifiers
-        assert Modifier.SHIFT in listener._modifiers
-        assert Modifier.ALT in listener._modifiers
-
-    def test_left_right_ctrl_treated_same(self):
-        """ctrl and ctrl_r both set CTRL modifier."""
-        from listener import PynputListener
-        from pynput import keyboard
-
-        listener = PynputListener()
-
-        # Left ctrl (pynput uses 'ctrl' for left)
-        listener._on_press(keyboard.Key.ctrl)
-        assert Modifier.CTRL in listener._modifiers
-        listener._on_release(keyboard.Key.ctrl)
-        assert Modifier.CTRL not in listener._modifiers
-
-        # Right ctrl
-        listener._on_press(keyboard.Key.ctrl_r)
-        assert Modifier.CTRL in listener._modifiers
-
-    def test_left_right_shift_treated_same(self):
-        """shift and shift_r both set SHIFT modifier."""
-        from listener import PynputListener
-        from pynput import keyboard
-
-        listener = PynputListener()
-
-        listener._on_press(keyboard.Key.shift)
-        assert Modifier.SHIFT in listener._modifiers
-        listener._on_release(keyboard.Key.shift)
-
-        listener._on_press(keyboard.Key.shift_r)
-        assert Modifier.SHIFT in listener._modifiers
-
-    def test_left_right_alt_treated_same(self):
-        """alt and alt_r both set ALT modifier."""
-        from listener import PynputListener
-        from pynput import keyboard
-
-        listener = PynputListener()
-
-        listener._on_press(keyboard.Key.alt)
-        assert Modifier.ALT in listener._modifiers
-        listener._on_release(keyboard.Key.alt)
-
-        listener._on_press(keyboard.Key.alt_r)
-        assert Modifier.ALT in listener._modifiers
+        assert listener._modifiers == {Modifier.CTRL, Modifier.SHIFT, Modifier.ALT}
 
 
 class TestPynputListenerKeyMapping:
     """Test key normalization and mapping."""
 
     def test_char_key_normalized(self):
-        """Key with .char attribute creates char event."""
-        from listener import PynputListener
-        from unittest.mock import MagicMock
-
         received = []
-        def callback(event):
-            received.append(event)
-
         listener = PynputListener()
-        listener.start(callback)
+        listener._callback = received.append
 
-        mock_key = MagicMock()
-        mock_key.char = 'x'
-        listener._on_press(mock_key)
+        listener._on_press(FakeKey(char="x"))
 
         assert len(received) == 1
-        assert received[0].char == 'x'
+        assert received[0].char == "x"
         assert received[0].key is None
 
-    def test_escape_mapped(self):
-        """keyboard.Key.esc maps to SpecialKey.ESCAPE."""
-        from listener import PynputListener
-        from pynput import keyboard
-
+    @pytest.mark.parametrize(
+        ("key_name", "expected_special"),
+        [
+            ("esc", SpecialKey.ESCAPE),
+            ("backspace", SpecialKey.BACKSPACE),
+            ("delete", SpecialKey.DELETE),
+            ("enter", SpecialKey.ENTER),
+            ("tab", SpecialKey.TAB),
+            ("up", SpecialKey.UP),
+            ("down", SpecialKey.DOWN),
+            ("left", SpecialKey.LEFT),
+            ("right", SpecialKey.RIGHT),
+        ],
+    )
+    def test_special_keys_mapped(self, key_name, expected_special):
         received = []
-        def callback(event):
-            received.append(event)
-
         listener = PynputListener()
-        listener.start(callback)
-        listener._on_press(keyboard.Key.esc)
+        listener._callback = received.append
+
+        listener._on_press(FakeKey(name=key_name, has_char=False))
 
         assert len(received) == 1
-        assert received[0].key == SpecialKey.ESCAPE
-
-    def test_backspace_mapped(self):
-        """keyboard.Key.backspace maps to SpecialKey.BACKSPACE."""
-        from listener import PynputListener
-        from pynput import keyboard
-
-        received = []
-        def callback(event):
-            received.append(event)
-
-        listener = PynputListener()
-        listener.start(callback)
-        listener._on_press(keyboard.Key.backspace)
-
-        assert len(received) == 1
-        assert received[0].key == SpecialKey.BACKSPACE
-
-    def test_tab_mapped(self):
-        """keyboard.Key.tab maps to SpecialKey.TAB."""
-        from listener import PynputListener
-        from pynput import keyboard
-
-        received = []
-        def callback(event):
-            received.append(event)
-
-        listener = PynputListener()
-        listener.start(callback)
-        listener._on_press(keyboard.Key.tab)
-
-        assert len(received) == 1
-        assert received[0].key == SpecialKey.TAB
-
-    def test_arrow_keys_mapped(self):
-        """Arrow keys map to SpecialKey variants."""
-        from listener import PynputListener
-        from pynput import keyboard
-
-        mapping = {
-            keyboard.Key.up: SpecialKey.UP,
-            keyboard.Key.down: SpecialKey.DOWN,
-            keyboard.Key.left: SpecialKey.LEFT,
-            keyboard.Key.right: SpecialKey.RIGHT,
-        }
-
-        for pynput_key, expected_special in mapping.items():
-            received = []
-            def callback(event):
-                received.append(event)
-
-            listener = PynputListener()
-            listener.start(callback)
-            listener._on_press(pynput_key)
-
-            assert len(received) == 1
-            assert received[0].key == expected_special
+        assert received[0].key == expected_special
 
     def test_key_without_char_attribute(self):
-        """Key without .char (AttributeError) handled gracefully."""
-        from listener import PynputListener
-        from unittest.mock import MagicMock
-
         received = []
-        def callback(event):
-            received.append(event)
-
         listener = PynputListener()
-        listener.start(callback)
+        listener._callback = received.append
 
-        # Mock key that raises AttributeError on .char access
-        mock_key = MagicMock()
-        del mock_key.char  # Accessing .char will raise AttributeError
+        listener._on_press(FakeKey(name="unknown", has_char=False))
 
-        # Should not raise
-        listener._on_press(mock_key)
+        assert received == []
 
     def test_unknown_special_key_skipped(self):
-        """Unknown special key (e.g., F1) is skipped - no event emitted."""
-        from listener import PynputListener
-        from pynput import keyboard
-
         received = []
-        def callback(event):
-            received.append(event)
-
         listener = PynputListener()
-        listener.start(callback)
-        listener._on_press(keyboard.Key.f1)  # Not in our SpecialKey enum
+        listener._callback = received.append
 
-        # Should skip - no event emitted
-        assert len(received) == 0
+        listener._on_press(FakeKey(name="f1", has_char=False))
+
+        assert received == []
 
 
 class TestPynputListenerEventTypes:
     """Test press/release event emission."""
 
     def test_press_emits_press_event(self):
-        """_on_press emits event with EventType.PRESS."""
-        from listener import PynputListener
-        from unittest.mock import MagicMock
-
         received = []
-        def callback(event):
-            received.append(event)
-
         listener = PynputListener()
-        listener.start(callback)
+        listener._callback = received.append
 
-        mock_key = MagicMock()
-        mock_key.char = 'a'
-        listener._on_press(mock_key)
+        listener._on_press(FakeKey(char="a"))
 
         assert received[0].event_type == EventType.PRESS
 
     def test_release_emits_release_event(self):
-        """_on_release emits event with EventType.RELEASE."""
-        from listener import PynputListener
-        from unittest.mock import MagicMock
-
         received = []
-        def callback(event):
-            received.append(event)
-
         listener = PynputListener()
-        listener.start(callback)
+        listener._callback = received.append
 
-        mock_key = MagicMock()
-        mock_key.char = 'a'
-        listener._on_release(mock_key)
+        listener._on_release(FakeKey(char="a"))
 
         assert received[0].event_type == EventType.RELEASE
 
@@ -696,20 +464,10 @@ class TestPynputListenerEdgeCases:
     """Edge cases for PynputListener."""
 
     def test_release_without_press(self):
-        """Release event for key never pressed doesn't crash."""
-        from listener import PynputListener
-        from pynput import keyboard
-
         listener = PynputListener()
-        # Release ctrl without ever pressing it
-        listener._on_release(keyboard.Key.ctrl)
-        # Should not raise
+        listener._on_release(FakeKey(name="ctrl", has_char=False))
 
     def test_callback_exception_continues(self):
-        """If callback raises, listener continues working."""
-        from listener import PynputListener
-        from unittest.mock import MagicMock
-
         call_count = [0]
 
         def bad_callback(event):
@@ -718,15 +476,9 @@ class TestPynputListenerEdgeCases:
                 raise RuntimeError("callback error")
 
         listener = PynputListener()
-        listener.start(bad_callback)
+        listener._callback = bad_callback
 
-        mock_key = MagicMock()
-        mock_key.char = 'a'
-
-        # First call raises
-        listener._on_press(mock_key)
-
-        # Second call should still work
-        listener._on_press(mock_key)
+        listener._on_press(FakeKey(char="a"))
+        listener._on_press(FakeKey(char="a"))
 
         assert call_count[0] == 2

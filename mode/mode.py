@@ -72,6 +72,7 @@ class ModeContext:
     previous_mode: str | None
     get_state: Callable[[], dict]
     repeat_count: int = 1  # Per-event, passed through handle()
+    quit: Callable[[], None] | None = None
 
 
 @dataclass
@@ -97,7 +98,13 @@ class Mode:
     - Silent transitions (suppress_message)
     """
 
-    def __init__(self, teller: Teller, store: Any, mark: Any = None):
+    def __init__(
+        self,
+        teller: Teller,
+        store: Any,
+        mark: Any = None,
+        quit_callback: Callable[[], None] | None = None,
+    ):
         """
         Create Mode instance.
 
@@ -105,6 +112,7 @@ class Mode:
             teller: TTS output (Teller protocol)
             store: Data storage (store.store.Store)
             mark: Navigation state (mark.mark.Mark), optional
+            quit_callback: Optional application shutdown callback.
         """
         self._teller = teller
         self._store = store
@@ -113,6 +121,7 @@ class Mode:
         self._previous: str | None = None
         self._modes: dict[str, ModeConfig] = {}
         self._state: dict[str, dict] = {}  # Per-mode state dicts
+        self._quit_callback = quit_callback
 
     @property
     def current(self) -> str | None:
@@ -262,6 +271,7 @@ class Mode:
             previous_mode=self._previous,
             get_state=lambda: self._state[current_mode_name],
             repeat_count=repeat_count,
+            quit=self._quit_callback,
         )
 
         try:

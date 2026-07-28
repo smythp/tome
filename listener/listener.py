@@ -2,16 +2,16 @@
 Listener RSP - Keyboard input abstraction.
 
 Wraps pynput. Listens for keypresses, handles modifiers, emits KeyEvents.
-This module is the ONLY place that imports pynput.
+This module is the ONLY place that imports pynput, and it does so lazily
+when the real listener starts.
 """
 
+import importlib
 import logging
 import threading
 from dataclasses import dataclass
 from enum import Enum, auto
-from typing import Callable, Protocol
-
-from pynput import keyboard
+from typing import Any, Callable, Protocol
 
 
 logger = logging.getLogger(__name__)
@@ -94,6 +94,12 @@ class MockListener:
         self._running: bool = False
         self._lock = threading.Lock()
 
+    @property
+    def running(self) -> bool:
+        """Return whether the mock listener is started."""
+        with self._lock:
+            return self._running
+
     def start(self, callback: Callable[[KeyEvent], None]) -> None:
         """Start listening. Raises if already started."""
         with self._lock:
@@ -118,28 +124,40 @@ class MockListener:
             callback(event)
 
 
-# Mapping from pynput special keys to our SpecialKey enum
-PYNPUT_TO_SPECIAL: dict[keyboard.Key, SpecialKey] = {
-    keyboard.Key.esc: SpecialKey.ESCAPE,
-    keyboard.Key.backspace: SpecialKey.BACKSPACE,
-    keyboard.Key.delete: SpecialKey.DELETE,
-    keyboard.Key.enter: SpecialKey.ENTER,
-    keyboard.Key.tab: SpecialKey.TAB,
-    keyboard.Key.up: SpecialKey.UP,
-    keyboard.Key.down: SpecialKey.DOWN,
-    keyboard.Key.left: SpecialKey.LEFT,
-    keyboard.Key.right: SpecialKey.RIGHT,
+class NoListener:
+    """Explicit no-listener harness for headless runs."""
+
+    def start(self, callback: Callable[[KeyEvent], None]) -> None:
+        """Start without registering any input source."""
+        return
+
+    def stop(self) -> None:
+        """Stop is a no-op."""
+        return
+
+
+# Mapping from pynput key names to our enums. Pynput is imported lazily in
+# PynputListener.start() so importing listener is safe without X11.
+PYNPUT_NAME_TO_SPECIAL: dict[str, SpecialKey] = {
+    "esc": SpecialKey.ESCAPE,
+    "backspace": SpecialKey.BACKSPACE,
+    "delete": SpecialKey.DELETE,
+    "enter": SpecialKey.ENTER,
+    "tab": SpecialKey.TAB,
+    "up": SpecialKey.UP,
+    "down": SpecialKey.DOWN,
+    "left": SpecialKey.LEFT,
+    "right": SpecialKey.RIGHT,
 }
 
-# Mapping from pynput modifier keys to our Modifier enum
-# pynput uses shift/ctrl/alt for left, shift_r/ctrl_r/alt_r for right
-PYNPUT_TO_MODIFIER: dict[keyboard.Key, Modifier] = {
-    keyboard.Key.shift: Modifier.SHIFT,
-    keyboard.Key.shift_r: Modifier.SHIFT,
-    keyboard.Key.ctrl: Modifier.CTRL,
-    keyboard.Key.ctrl_r: Modifier.CTRL,
-    keyboard.Key.alt: Modifier.ALT,
-    keyboard.Key.alt_r: Modifier.ALT,
+# Pynput uses shift/ctrl/alt for left, shift_r/ctrl_r/alt_r for right.
+PYNPUT_NAME_TO_MODIFIER: dict[str, Modifier] = {
+    "shift": Modifier.SHIFT,
+    "shift_r": Modifier.SHIFT,
+    "ctrl": Modifier.CTRL,
+    "ctrl_r": Modifier.CTRL,
+    "alt": Modifier.ALT,
+    "alt_r": Modifier.ALT,
 }
 
 
@@ -149,14 +167,19 @@ class PynputListener:
     def __init__(self):
         self._callback: Callable[[KeyEvent], None] | None = None
         self._modifiers: set[Modifier] = set()
-        self._listener: keyboard.Listener | None = None
+        self._listener: Any | None = None
         self._lock = threading.Lock()
+
+    def _load_keyboard(self):
+        """Import pynput.keyboard only when a real listener starts."""
+        return importlib.import_module("pynput.keyboard")
 
     def start(self, callback: Callable[[KeyEvent], None]) -> None:
         """Start listening for keyboard events. Raises if already started."""
         with self._lock:
             if self._listener is not None:
                 raise RuntimeError("PynputListener already started")
+            keyboard = self._load_keyboard()
             self._callback = callback
             self._modifiers = set()
             self._listener = keyboard.Listener(
@@ -178,9 +201,10 @@ class PynputListener:
     def _on_press(self, key) -> None:
         """Handle key press from pynput."""
         # Check if it's a modifier key
-        if key in PYNPUT_TO_MODIFIER:
+        modifier = PYNPUT_NAME_TO_MODIFIER.get(self._key_name(key))
+        if modifier:
             with self._lock:
-                self._modifiers.add(PYNPUT_TO_MODIFIER[key])
+                self._modifiers.add(modifier)
             return  # Don't emit event for modifier keys themselves
 
         event = self._normalize_key(key, EventType.PRESS)
@@ -190,9 +214,10 @@ class PynputListener:
     def _on_release(self, key) -> None:
         """Handle key release from pynput."""
         # Check if it's a modifier key
-        if key in PYNPUT_TO_MODIFIER:
+        modifier = PYNPUT_NAME_TO_MODIFIER.get(self._key_name(key))
+        if modifier:
             with self._lock:
-                self._modifiers.discard(PYNPUT_TO_MODIFIER[key])
+                self._modifiers.discard(modifier)
             return  # Don't emit event for modifier keys themselves
 
         event = self._normalize_key(key, EventType.RELEASE)
@@ -218,10 +243,11 @@ class PynputListener:
             pass
 
         # Check if it's a known special key
-        if key in PYNPUT_TO_SPECIAL:
+        special = PYNPUT_NAME_TO_SPECIAL.get(self._key_name(key))
+        if special:
             return KeyEvent(
                 char=None,
-                key=PYNPUT_TO_SPECIAL[key],
+                key=special,
                 modifiers=modifiers,
                 event_type=event_type,
             )
@@ -238,5 +264,12 @@ class PynputListener:
             return
         try:
             callback(event)
-        except Exception:
-            logger.exception(f"Callback raised exception for event: {event}")
+        except Exception as e:
+            logger.exception(f"Callback raised exception: {e}")
+
+    def _key_name(self, key) -> str:
+        """Return a stable pynput key name without importing pynput at module load."""
+        name = getattr(key, "name", None)
+        if isinstance(name, str):
+            return name
+        return str(key).split(".")[-1]

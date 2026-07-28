@@ -5,7 +5,7 @@ This package is the ONLY place that imports pynput.
 
 Basic usage:
     from listener import KeyEvent, SpecialKey, Modifier, EventType
-    from listener import PynputListener, MockListener
+    from listener import PynputListener, MockListener, NoListener
 
     # Real keyboard
     listener = PynputListener()
@@ -24,6 +24,7 @@ from .listener import (
     EventType,
     Listener,
     MockListener,
+    NoListener,
     PynputListener,
 )
 
@@ -34,5 +35,6 @@ __all__ = [
     "EventType",
     "Listener",
     "MockListener",
+    "NoListener",
     "PynputListener",
 ]

@@ -10,8 +10,10 @@ Wires together the RSP primitives:
 """
 
 import os
+import signal
 import sys
 import time
+from types import FrameType
 from typing import Callable
 
 
@@ -21,12 +23,13 @@ def get_default_db() -> str:
     os.makedirs(tome_dir, exist_ok=True)
     return os.path.join(tome_dir, "lore.db")
 
+
 # RSPs
 from store import Store
 from teller import get_handler as get_teller
 from mark import Mark
-from mode import Mode, ModeContext
-from listener import PynputListener, KeyEvent, EventType
+from mode import Mode
+from listener import EventType, KeyEvent, Listener, NoListener, PynputListener
 
 # External
 import pyperclip
@@ -39,21 +42,41 @@ import pyperclip
 class App:
     """Main application - wires RSPs and manages state."""
 
-    def __init__(self, db_path: str = "lore.db", teller_mode: str = "espeak"):
+    def __init__(
+        self,
+        db_path: str = "lore.db",
+        teller_mode: str = "espeak",
+        listener: Listener | None = None,
+    ):
         # Core RSPs
         self.store = Store(db_path)
         self.teller = get_teller(teller_mode)
         self.mark = Mark(self.store)
-        self.mode = Mode(self.teller, self.store, self.mark)
-        self.listener = PynputListener()
+        self.listener = listener if listener is not None else PynputListener()
+        self.mode = Mode(
+            self.teller,
+            self.store,
+            self.mark,
+            quit_callback=self.request_shutdown,
+        )
 
         # Consecutive key tracking (reset on mode change)
         self._last_key: str | None = None
         self._repeat_count: int = 0
 
+        self._running = False
+        self._shutdown_started = False
+        self._modes_registered = False
+        self._previous_signal_handlers: dict[int, Callable | int | None] = {}
+
         # Register mode switch hook to reset repeat tracking
         self._original_switch = self.mode.switch
         self.mode.switch = self._switch_with_reset
+
+    @property
+    def running(self) -> bool:
+        """Return whether the app run loop is active."""
+        return self._running
 
     def _switch_with_reset(self, name: str, *, silent: bool = False) -> None:
         """Wrap mode.switch to reset repeat tracking on mode change."""
@@ -89,8 +112,6 @@ class App:
 
     def _on_key(self, event: KeyEvent) -> None:
         """Handle keyboard event - route to Mode."""
-        from listener import Modifier
-
         # Only handle press events (not release)
         if event.event_type != EventType.PRESS:
             return
@@ -98,15 +119,33 @@ class App:
         # Privileged quit handling - 'q' always exits
         if event.char == 'q':
             self.teller.speak("quit", wait=True)  # Block until spoken
-            self.shutdown()
-            import os
-            os._exit(0)  # Force exit, sys.exit doesn't kill threads
+            self.request_shutdown()
+            return
 
         repeat = self._track_repeat(event)
         self.mode.handle(event, repeat_count=repeat)
 
-    def run(self) -> None:
+    def run(self, *, block: bool = True) -> None:
         """Start the application."""
+        self._start()
+        if not block:
+            return
+
+        self._install_signal_handlers()
+        try:
+            while self._running:
+                time.sleep(0.1)
+        except KeyboardInterrupt:
+            self.request_shutdown()
+        finally:
+            self.shutdown()
+            self._restore_signal_handlers()
+
+    def _start(self) -> None:
+        """Start modes, welcome output, and listener."""
+        if self._running:
+            raise RuntimeError("App already running")
+
         # Register modes
         self._register_modes()
 
@@ -116,23 +155,70 @@ class App:
         # Speak welcome
         self.teller.speak("Tome of lore")
 
-        # Start listening
-        self.listener.start(self._on_key)
-
         try:
-            # Block forever (listener runs in background thread)
-            while True:
-                time.sleep(1)
-        except KeyboardInterrupt:
-            self.shutdown()
+            self.listener.start(self._on_key)
+        except Exception:
+            self._flush_output()
+            self.teller.stop()
+            raise
+
+        self._running = True
+        self._shutdown_started = False
+
+    def request_shutdown(self) -> None:
+        """Request application shutdown from callbacks or signal handlers."""
+        self._running = False
+        self.shutdown()
 
     def shutdown(self) -> None:
         """Clean shutdown."""
-        self.listener.stop()
-        self.teller.stop()
+        if self._shutdown_started:
+            return
+        self._shutdown_started = True
+        self._running = False
+
+        self._flush_output()
+        try:
+            self.listener.stop()
+        finally:
+            self.teller.stop()
+            self._flush_output()
+
+    def _flush_output(self) -> None:
+        """Flush redirected text output before process exit."""
+        for stream in (sys.stdout, sys.stderr):
+            try:
+                stream.flush()
+            except Exception:
+                pass
+
+    def _handle_signal(self, signum: int, frame: FrameType | None) -> None:
+        """Convert termination signals into ordered shutdown."""
+        self.request_shutdown()
+
+    def _install_signal_handlers(self) -> None:
+        """Install signal handlers for blocking production runs."""
+        for signum in (signal.SIGTERM,):
+            try:
+                self._previous_signal_handlers[signum] = signal.getsignal(signum)
+                signal.signal(signum, self._handle_signal)
+            except (OSError, ValueError):
+                pass
+
+    def _restore_signal_handlers(self) -> None:
+        """Restore signal handlers changed by run()."""
+        for signum, handler in self._previous_signal_handlers.items():
+            try:
+                signal.signal(signum, handler)
+            except (OSError, ValueError):
+                pass
+        self._previous_signal_handlers.clear()
 
     def _register_modes(self) -> None:
         """Register all mode handlers."""
+        if self._modes_registered:
+            return
+
         from handlers import (
             options_handler,
             confirm_handler,
@@ -179,6 +265,7 @@ class App:
             list_handler,
             message="List mode",
         )
+        self._modes_registered = True
 
 
 # =============================================================================
@@ -189,11 +276,13 @@ def main():
     import argparse
     parser = argparse.ArgumentParser(description="Tome of Lore")
     parser.add_argument("--text", action="store_true", help="Use text output instead of speech")
+    parser.add_argument("--no-listener", action="store_true", help="Run without a keyboard listener")
     parser.add_argument("--db", default=get_default_db(), help="Database file path (default: ~/.tome/lore.db)")
     args = parser.parse_args()
 
     teller_mode = "text" if args.text else "espeak"
-    app = App(db_path=args.db, teller_mode=teller_mode)
+    listener = NoListener() if args.no_listener else None
+    app = App(db_path=args.db, teller_mode=teller_mode, listener=listener)
     app.run()
 
 

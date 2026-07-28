@@ -22,7 +22,7 @@ print("Step 4: Create Mark...")
 mark = Mark(store)
 
 print("Step 5: Create Mode...")
-mode = Mode(teller, store, mark)
+mode = Mode(teller, store, mark, quit_callback=lambda: None)
 
 print("Step 6: Register minimal read handler...")
 def minimal_read(event, ctx):

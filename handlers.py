@@ -6,6 +6,7 @@ Each handler is a function: (event: KeyEvent, context: ModeContext) -> None
 
 import os
 import re
+import sys
 import webbrowser
 from typing import Callable
 
@@ -20,7 +21,14 @@ from mode import ModeContext
 
 def quit_app(ctx: ModeContext) -> None:
     """Exit the application (caller should speak before calling)."""
-    os._exit(0)  # Force exit - sys.exit doesn't kill listener thread
+    quit_callback = getattr(ctx, "quit", None)
+    if quit_callback is not None:
+        quit_callback()
+        return
+
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(0)  # Fallback for legacy non-App contexts without a listener owner
 
 
 def status(value: bool) -> str:

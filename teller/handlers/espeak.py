@@ -45,7 +45,7 @@ class EspeakHandler(BaseHandler):
             logger.error("[teller/espeak] espeak not available")
             return
 
-        # Kill any ongoing speech first
+        # Reap or stop any ongoing speech first.
         self.stop()
 
         if not text:
@@ -57,23 +57,40 @@ class EspeakHandler(BaseHandler):
         cmd = [self._espeak_cmd, f"-s{speed}", "-z", text]
 
         try:
+            process = subprocess.Popen(cmd)
+            self._process = process
             if wait:
-                subprocess.call(cmd)
-            else:
-                self._process = subprocess.Popen(cmd)
+                process.wait()
+                if self._process is process:
+                    self._process = None
         except Exception as e:
             logger.error(f"[teller/espeak] Failed to speak: {e}")
+            if self._process is not None:
+                self.stop()
 
     def stop(self) -> None:
-        """Stop any ongoing speech."""
-        # Terminate our tracked process if running
-        if self._process is not None:
-            try:
-                self._process.terminate()
-                self._process.wait(timeout=0.5)
-            except Exception:
+        """Stop any ongoing speech and reap the child process."""
+        process = self._process
+        if process is None:
+            return
+
+        try:
+            if process.poll() is None:
+                process.terminate()
                 try:
-                    self._process.kill()
-                except Exception:
-                    pass
-            self._process = None
+                    process.wait(timeout=0.5)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait(timeout=0.5)
+            else:
+                process.wait(timeout=0)
+        except Exception:
+            try:
+                if process.poll() is None:
+                    process.kill()
+                process.wait(timeout=0.5)
+            except Exception:
+                pass
+        finally:
+            if self._process is process:
+                self._process = None
