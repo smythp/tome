@@ -1,0 +1,1187 @@
+CREATE.sql
+24-
+25--- Default configuration settings
+26:INSERT INTO config (key, value, description) VALUES ('debug_mode', 'off', 'Enable/disable debug output');
+
+test_integration.py
+93-print("\n--- Test 2: Double-tap ---")
+94-print("Pressing 'a' again:")
+95:# Note: would normally call sys.exit(), let's see what happens
+96-try:
+97-    press(char='a')
+
+RUNNABILITY_ASSESSMENT_MAY2026.md
+14-> `python tome.py` will crash with `ImportError: No module named 'pyperclip'`
+15-
+16:**This is incorrect for the current environment.** `pyperclip-1.11.0` IS installed in the venv (confirmed via `ls .venv/lib/python3.12/site-packages/pyperclip*`), even though it remains commented out in `pyproject.toml`. The app will NOT crash on import. However, pyperclip is still an **undeclared dependency** — a packaging bug that would bite anyone doing a fresh `pip install`.
+17-
+18-## Environment State
+--
+50-- **mode/**: logging, dataclasses, typing
+51-- **listener/**: stdlib + pynput (declared)
+52:- **teller/**: stdlib + espeak system binary (has text/debug fallback handlers)
+53-
+54-Cross-module dependencies use Protocol classes — no circular import risk.
+--
+65-## What's Broken
+66-
+67:### 1. Undeclared pyperclip Dependency (Packaging Bug)
+68-
+69-**Impact:** Fresh `pip install -e .` will NOT install pyperclip → `ImportError` on `import pyperclip` (tome.py line 32)  
+--
+89-### 3. espeak System Dependency (Undocumented)
+90-
+91:README lists espeak as a prerequisite but provides no installation instructions. The teller module has fallback handlers (text, debug), and the `--text` CLI flag bypasses espeak entirely.
+92-
+93-### 4. X11/Display Requirement
+--
+99-- Headless servers
+100-
+101:This is fundamental to the app's design (keyboard-driven interface) and not a bug.
+102-
+103-## What's Still Missing
+
+handlers.py
+74-    Keys:
+75-        s - Toggle strip_input
+76:        d - Toggle debug_mode
+77-        a - Toggle default_action (copy/auto)
+78-        Escape - Return to read mode
+--
+96-
+97-    elif char == "d":
+98:        # Toggle debug_mode
+99:        current = ctx.store.get_config("debug_mode", "off") == "on"
+100-        new_value = not current
+101:        ctx.store.set_config("debug_mode", "on" if new_value else "off")
+102:        ctx.teller.speak(f"Debug mode {status(new_value)}")
+103-
+104-    elif char == "a":
+
+tome_improvement_brief.md
+75-  - "How to safely modify buffer operations"
+76-  - "Understanding mode state transitions"
+77:  - "Debugging index mismatches"
+78-
+79-### Success Metrics
+--
+91-
+92-### Problem
+93:Buffer hierarchy management (create/enter/exit/delete) involves state cascades through parent_id references. Easy to corrupt, hard to debug.
+94-
+95-### Action
+--
+123-
+124-### Problem
+125:The mode state machine (context creation, switching, protocol DI) is critical infrastructure. Everything assumes it works perfectly, but it's hard to debug when it doesn't.
+126-
+127-### Action
+--
+142-
+143-### Success Metrics
+144:- Mode state visible during debugging
+145-- Error messages include actionable context
+146-- Developers can inspect mode state without code changes
+--
+217-
+218-## Initiative 6: List Navigation Index Management
+219:**Priority: LOW-MEDIUM** | **Effort: Low** | **Impact: Bug Reduction**
+220-
+221-### Problem
+--
+241-- Index semantics documented with examples
+242-- Validation helpers available
+243:- Zero index-related bugs in next sprint
+244-
+245-### Dependencies
+--
+257-
+258-3. **Mode State Machine Observability** (HIGH)  
+259:   *Blocks debugging. Critical infrastructure.*
+260-
+261-4. **Reference.py Deprecation Path** (MEDIUM-HIGH)  
+--
+266-
+267-6. **List Navigation Index Management** (LOW-MEDIUM)  
+268:   *Quick win. Bug reduction.*
+269-
+270----
+--
+294-1. Initiative 1 (Dragon Documentation) - Foundational
+295-2. Initiative 2 (Buffer Safety) - Data integrity
+296:3. Initiative 3 (Mode Observability) - Debugging
+297-
+298----
+
+phase3-runnability-findings.md
+57----
+58-
+59:*Note: This finding was intended to be posted to `tome-improvement` site via skein, but skein CLI was unavailable. Saved as file for manual review or future posting.*
+
+ARCHITECTURE_MAP.md
+234-│  └─ handlers/
+235-│      ├─ espeak.py     # Linux TTS
+236:│      ├─ text.py       # Debug handler
+237-│      └─ macos_say.py  # macOS TTS
+238-├─ pytest.ini           # Test config (markers: unit, integration, slow)
+
+listener/test_listener.py
+437-        # The 'a' press should have SHIFT in modifiers
+438-        a_events = [e for e in received if e.char == 'a']
+439:        # Note: this test assumes _on_press calls callback
+440-        # Implementation may differ - adjust as needed
+441-
+
+mark/test_gremlin_attacks.py
+416-        m.last_retrieved = evil
+417-        
+418:        # Can store it, but can't print mark or debug
+419-        with pytest.raises(ValueError):
+420-            repr(m.last_retrieved)
+
+mark/mark.py
+76-        Raises:
+77-            RuntimeError: If path traversal exceeds 100,000 iterations
+78:                         (indicates Store bug or malicious implementation)
+79-        """
+80-        result = []
+--
+90-                raise RuntimeError(
+91-                    f"Path traversal exceeded {max_iterations} iterations. "
+92:                    f"This indicates a bug in Store.get() (non-deterministic or pathological data)."
+93-                )
+94-
+
+listener/listener.py
+228-
+229-        # Unknown key - skip and log
+230:        logger.debug(f"Skipping unknown key: {key}")
+231-        return None
+232-
+
+RUNNABILITY_ASSESSMENT.md
+37-- **mode/mode.py**: `logging`, `dataclasses`, `typing`
+38-- **listener/listener.py**: stdlib + `pynput` (declared in pyproject.toml)
+39:- **teller/**: stdlib + espeak (system binary, with text/debug fallback handlers)
+40-
+41-All cross-module dependencies use Protocol classes — no circular imports.
+--
+52-## What's Broken
+53-
+54:### 1. Missing pyperclip Dependency (BUG)
+55-
+56-**File:** `tome.py`, line 32  
+--
+90-### 3. espeak System Dependency
+91-
+92:`teller/handlers/espeak.py` depends on the system `espeak` binary. This isn't pip-installable and isn't documented. The teller has fallback handlers (`text.py`, `debug.py`), so this isn't blocking for tests, but it blocks full application use.
+93-
+94-## What's Still Missing
+
+teller/__init__.py
+14-    from teller import get_handler, list_handlers, set_default_handler
+15-
+16:    list_handlers()               # ['espeak', 'text', 'debug']
+17-    set_default_handler('text')   # Switch to text output
+18:    handler = get_handler('debug')
+19-    handler.speak("Direct call")
+20-
+--
+99-
+100-    Args:
+101:        name: Handler name (e.g., 'espeak', 'text', 'debug').
+102-
+103-    Returns:
+
+reference.py
+42-suppress_mode_message = False
+43-strip_input = True
+44:debug_mode = False   # Debug mode toggle (overridden by database setting)
+45-key_presses = {}     # Track key presses for read functionality
+46-
+--
+108-        key_str = str(key)
+109-
+110:    debug_print(f"Checking if key '{key_str}' contains a buffer in parent buffer {parent_buffer_id}")
+111-
+112:    # Get all entries for this key (including deleted ones for debugging)
+113-    connection, cursor = connect()
+114-    cursor.execute(
+--
+118-    all_entries = cursor.fetchall()
+119-
+120:    debug_print(f"Found {len(all_entries) if all_entries else 0} total entries for key '{key_str}' in buffer {parent_buffer_id}")
+121-
+122-    # Filter out deleted entries and check if any remain
+--
+124-
+125-    for entry in all_entries:
+126:        debug_print(f"  Entry ID: {entry['id']}, deleted: {entry.get('deleted', 'NULL')}, parent_id: {entry['parent_id']}, value: {entry['value']}")
+127-
+128-    if active_entries:
+129:        debug_print(f"Found {len(active_entries)} active buffer entries")
+130-        is_buffer = True
+131-    else:
+132:        debug_print("No active buffer entries found")
+133-        is_buffer = False
+134-
+135:    debug_print(f"Is key '{key_str}' a buffer? {is_buffer}")
+136-
+137-    return is_buffer
+--
+186-
+187-
+188:def debug_print(*args, **kwargs):
+189:    """Print only if debug_mode is enabled."""
+190:    global debug_mode
+191:    if debug_mode:
+192-        print(*args, **kwargs)
+193-
+--
+196-    """Get a configuration value from the database."""
+197-    try:
+198:        connection, cursor = connect(skip_debug=True)  # Avoid circular reference
+199-        
+200-        # Check if the config table exists
+--
+219-    """Set a configuration value in the database."""
+220-    try:
+221:        connection, cursor = connect(skip_debug=True)  # Avoid circular reference
+222-        
+223-        # Check if the config table exists
+--
+253-
+254-
+255:def connect(skip_debug=False):
+256-    """Connect to the database. Returns a tuple containing connection and cursor objects."""
+257-    try:
+258:        if not skip_debug:  # Skip debug prints when called from get_config to avoid circular reference
+259:            debug_print(f"Connecting to database: {database}")
+260:            debug_print(f"Database exists: {os.path.exists(database)}")
+261:            debug_print(f"Database directory exists: {os.path.exists(os.path.dirname(database))}")
+262:            debug_print(f"Database permissions: {oct(os.stat(database).st_mode & 0o777) if os.path.exists(database) else 'N/A'}")
+263:            debug_print(f"Current working directory: {os.getcwd()}")
+264-
+265-        # Ensure directory exists for the database
+--
+301-
+302-            if 'deleted' not in column_names:
+303:                debug_print("Adding deleted column to lore table")
+304-                cursor.execute("ALTER TABLE lore ADD COLUMN deleted BOOLEAN DEFAULT 0")
+305-                connection.commit()
+--
+341-        if hasattr(key, 'char'):  # Check for char attribute instead of isinstance
+342-            key = key.char
+343:            debug_print(f"Retrieved key.char: {key}")
+344-
+345-        # Print diagnostic information
+346:        debug_print(f"Retrieving: key={key}, buffer_id={buffer_id}, fetch={fetch}, parent_id={parent_id}")
+347-
+348-        if fetch == 'list_items' and parent_id is not None:
+--
+354-            results = cursor.execute(query, (parent_id,))
+355-            results = results.fetchall()
+356:            debug_print(f"Fetched {len(results) if results else 0} list items")
+357-            return results
+358-        elif fetch == 'last_value':
+--
+373-
+374-        # Print the query and parameters for diagnostics
+375:        debug_print(f"SQL Query: {query}")
+376:        debug_print(f"Parameters: buffer_id={buffer_id}, key={str(key)}")
+377-        
+378-        results = cursor.execute(query, (buffer_id, str(key)))
+379-
+380-        if not results:
+381:            debug_print("No results returned from query")
+382-            return None
+383-
+384-        if fetch == 'all' or fetch == 'history':
+385-            results = results.fetchall()
+386:            debug_print(f"Fetched {len(results)} records")
+387-        else:
+388-            results = results.fetchone()
+389:            debug_print(f"Fetched record: {results}")
+390-
+391-        return results
+--
+504-    """
+505-    if buffer_id == 1:  # Prevent deletion of root buffer
+506:        debug_print("Cannot delete root buffer")
+507-        return False, "Cannot delete root buffer"
+508-
+509-    connection, cursor = connect()
+510:    debug_print(f"Deleting buffer with ID: {buffer_id}")
+511-
+512-    # First find the buffer entry itself (the entry that points to this buffer ID)
+--
+518-
+519-    if not buffer_entry:
+520:        debug_print(f"Buffer entry not found for buffer ID: {buffer_id}")
+521-        return False, "Buffer not found"
+522-
+523:    debug_print(f"Found buffer entry: {buffer_entry}")
+524-
+525-    # Mark the buffer entry as deleted
+526-    cursor.execute('UPDATE lore SET deleted = 1 WHERE id = ?;', (buffer_entry['id'],))
+527:    debug_print(f"Marked buffer entry with ID {buffer_entry['id']} as deleted")
+528-
+529-    # Get the parent buffer key information for verification
+--
+531-    key_info = cursor.fetchone()
+532-    if key_info:
+533:        debug_print(f"Buffer {buffer_id} was at key '{key_info['key']}' in parent buffer {key_info['buffer_id']}")
+534-
+535-    # Mark all entries in this buffer as deleted
+536-    cursor.execute('UPDATE lore SET deleted = 1 WHERE buffer_id = ?;', (buffer_id,))
+537:    debug_print(f"Marked all entries in buffer {buffer_id} as deleted")
+538-
+539-    # Find all sub-buffers
+--
+543-    )
+544-    sub_buffers = cursor.fetchall()
+545:    debug_print(f"Found {len(sub_buffers) if sub_buffers else 0} sub-buffers in buffer {buffer_id}")
+546-
+547-    # Recursively delete sub-buffers
+548-    for sub_buffer in sub_buffers:
+549:        debug_print(f"Recursively deleting sub-buffer: {sub_buffer['value']}")
+550-        delete_buffer_recursively(sub_buffer['value'])
+551-
+--
+554-    verify = cursor.fetchone()
+555-    if verify:
+556:        debug_print(f"Verification - buffer entry deleted status: {verify['deleted']}")
+557-
+558-    connection.commit()
+559:    debug_print(f"Committed deletion of buffer {buffer_id}")
+560-    return True, f"Buffer {buffer_id} and its contents deleted"
+561-
+--
+829-        if key == keyboard.Key.delete:
+830-            if last_retrieved['key'] is not None:
+831:                debug_print(f"Attempting to delete register {last_retrieved['key']} in buffer {last_retrieved['buffer_id']}")
+832-
+833-                # Get the entry to delete
+834-                result = retrieve(last_retrieved['key'], buffer_id=last_retrieved['buffer_id'])
+835:                debug_print(f"Retrieved result for deletion: {result}")
+836-
+837-                if not result:
+--
+845-
+846-                # Mark the entry as deleted
+847:                debug_print(f"Attempting to delete entry with ID {result['id']}")
+848-
+849-                # Get detailed information before deletion
+850-                connection, cursor = connect()
+851-                cursor.execute('SELECT * FROM lore WHERE id = ?;', (result['id'],))
+852:                debug_print(f"Entry details before deletion: {cursor.fetchone()}")
+853-
+854-                # Execute deletion directly instead of using soft_delete_entry
+--
+857-                rows_affected = cursor.rowcount
+858-
+859:                debug_print(f"Direct SQL update affected {rows_affected} rows")
+860-
+861-                # Verify the deletion
+862-                cursor.execute('SELECT * FROM lore WHERE id = ?;', (result['id'],))
+863:                debug_print(f"Entry details after deletion: {cursor.fetchone()}")
+864-
+865-                if rows_affected > 0:
+--
+1381-def options(key):
+1382-    global strip_input
+1383:    global debug_mode
+1384-
+1385-    try:
+--
+1390-            speak(f"Strip input {status(strip_input)}")
+1391-            
+1392:        # Toggle debug mode option
+1393-        elif key.char == "d":
+1394:            debug_mode = not debug_mode
+1395-            # Store the setting in the database for persistence
+1396:            set_config('debug_mode', 'on' if debug_mode else 'off')
+1397:            speak(f"Debug mode {status(debug_mode)}")
+1398-            
+1399-        # Toggle default action
+--
+1496-        # Get key as string for logging
+1497-        key_str = key.char if hasattr(key, 'char') else str(key)
+1498:        debug_print(f"Attempting to enter buffer at key '{key_str}' in current buffer {current_buffer_id}")
+1499-
+1500-        # Check if this key contains a buffer in the current buffer
+--
+1510-            retrieved = cursor.fetchone()
+1511-
+1512:            debug_print(f"Retrieved buffer data: {retrieved}")
+1513-
+1514-            # Double-check buffer exists and isn't deleted
+1515-            if not retrieved:
+1516:                debug_print("Buffer entry not found or was deleted")
+1517-                speak(f"No buffer at {key_str}")
+1518-                return False
+1519-
+1520-            new_buffer_id = retrieved['value']
+1521:            debug_print(f"Found non-deleted buffer with ID {new_buffer_id}")
+1522-
+1523-            # Track the path to this buffer
+--
+1579-    """Store data from clipboard into the currently selected key."""
+1580-    global current_buffer_id
+1581:    debug_print(key)
+1582-
+1583-    try:
+--
+1589-            return
+1590-
+1591:        debug_print(f"Current buffer ID: {current_buffer_id}")
+1592-
+1593-        if strip_input:
+--
+1664-    global suppress_mode_message
+1665-    global buffer_path
+1666:    global debug_mode
+1667-    global current_buffer_id
+1668-    global buffer_stack
+--
+1673-    buffer_path = []       # Empty buffer path (we're at root)
+1674-
+1675:    # Enable debug mode for troubleshooting
+1676:    debug_mode = True
+1677-
+1678-    # Load settings from database
+1679:    debug_setting = get_config('debug_mode', 'off')
+1680:    if not debug_mode:  # Only override if we haven't forced debug mode on
+1681:        debug_mode = (debug_setting == 'on')
+1682:    debug_print(f"Debug mode loaded from database: {debug_mode}")
+1683-
+1684-    strip_setting = get_config('strip_input', 'on')
+--
+1723-
+1724-    mode_function = mode_map[mode]['function']
+1725:    debug_print(f"Current mode: {mode}")
+1726:    debug_print(f"Key pressed: {key}")
+1727-
+1728-    # Handle backspace special cases for non-read modes
+--
+1750-    # Handle buffer deletion with confirmation when Delete key is pressed in a non-root buffer
+1751-    if key == keyboard.Key.delete and mode == 'read' and current_buffer_id != 1:
+1752:        debug_print(f"Delete key pressed in buffer {current_buffer_id}, checking last_retrieved: {last_retrieved}")
+1753-
+1754-        # For delete buffer operation, we need to have no register selected
+1755-        # If a register is selected, the read mode handler will handle the deletion
+1756-        if last_retrieved and last_retrieved['key'] is not None:
+1757:            debug_print("Register is selected, letting read mode handle deletion")
+1758-            # Let the read mode handler take care of this (register deletion)
+1759-            mode_function(key)
+--
+1767-        # Set up confirmation for buffer deletion
+1768-        buffer_name = get_buffer_name()
+1769:        debug_print(f"Setting up confirmation to delete buffer {buffer_name}")
+1770-
+1771-        confirm_state['active'] = True
+--
+1805-        mode_function(key)
+1806-    except AttributeError:
+1807:        debug_print(f"AttributeError handling key: {key}")
+1808-        for modifier in ['shift', 'ctrl', 'alt']:
+1809-            key_attribute = getattr(keyboard.Key, modifier)
+--
+1964-    if isinstance(key, keyboard.Key):
+1965-
+1966:        # Add debugging to see the key value
+1967:        debug_print(f"Special key in list mode: {key}")
+1968-        
+1969-        # Up arrow - move up toward item 1
+--
+2131-                        success, message = delete_buffer_recursively(buffer_id)
+2132-                        if success:
+2133:                            debug_print(f"Successfully deleted buffer {buffer_id}, now exiting it")
+2134-                            speak(f"Deleted buffer {buffer_name}")
+2135-
+2136-                            # Force an exit from the buffer by modifying the buffer stack
+2137-                            if len(buffer_stack) > 1:
+2138:                                debug_print(f"Current buffer stack before exit: {buffer_stack}")
+2139:                                debug_print(f"Current buffer path before exit: {buffer_path}")
+2140-
+2141-                                buffer_stack.pop()  # Remove current buffer from stack
+2142-                                current_buffer_id = buffer_stack[-1]  # Set current to parent buffer
+2143-
+2144:                                debug_print(f"New current buffer ID: {current_buffer_id}")
+2145:                                debug_print(f"New buffer stack: {buffer_stack}")
+2146-
+2147-                                # Update buffer path
+2148-                                if buffer_path:
+2149-                                    buffer_path.pop()  # Remove last key from path
+2150:                                    debug_print(f"New buffer path: {buffer_path}")
+2151-                            else:
+2152-                                # Already at root, shouldn't happen but just in case
+2153:                                debug_print("Cannot exit root buffer")
+2154-                                speak("Error: Cannot exit root buffer")
+2155-                        else:
+--
+2212-    "options": {
+2213-        "function": options,
+2214:        "message": "Options: Press s for strip input, d for debug mode, a for default action",
+2215-    },
+2216-    "clipboard": {
+
+teller/discovery.py
+69-                        handlers[handler_name] = instance
+70-                        handler_classes[handler_name] = item
+71:                        logger.debug(f"[teller] Registered handler: {handler_name}")
+72-                    except Exception as e:
+73-                        logger.warning(
+
+test_handlers.py
+130-        assert "off" in mock_context.teller.spoken[0]
+131-
+132:    def test_d_toggles_debug_mode_on(self, mock_context):
+133:        """Pressing 'd' toggles debug_mode from off to on."""
+134:        mock_context.store._config["debug_mode"] = "off"
+135-
+136-        event = make_event(char="d")
+137-        options_handler(event, mock_context)
+138-
+139:        mock_context.store.set_config.assert_called_with("debug_mode", "on")
+140-        assert "on" in mock_context.teller.spoken[0]
+141-
+142:    def test_d_toggles_debug_mode_off(self, mock_context):
+143:        """Pressing 'd' toggles debug_mode from on to off."""
+144:        mock_context.store._config["debug_mode"] = "on"
+145-
+146-        event = make_event(char="d")
+147-        options_handler(event, mock_context)
+148-
+149:        mock_context.store.set_config.assert_called_with("debug_mode", "off")
+150-        assert "off" in mock_context.teller.spoken[0]
+151-
+--
+199-        mock_context.store.set_config.assert_called_with("strip_input", "off")
+200-
+201:    def test_default_debug_mode_is_off(self, mock_context):
+202:        """Default debug_mode is 'off' when not set."""
+203-        # Config is empty
+204-        event = make_event(char="d")
+--
+206-
+207-        # Should toggle from default "off" to "on"
+208:        mock_context.store.set_config.assert_called_with("debug_mode", "on")
+209-
+210-    def test_default_default_action_is_copy(self, mock_context):
+
+tome/FINDING-feedback-loops-phase4-final.md
+74-4. **Add a Makefile**: `make test`, `make lint`, `make check` — standard entry points agents and humans both expect.
+75-5. **Update README**: Remove references to nonexistent scripts and files.
+76:6. **Add mypy or pyright**: Type checking would catch many bugs statically.
+77-
+78-## Evidence Notes
+
+teller/test_teller_gremlin.py
+297-
+298-# ============================================================================
+299:# Hardening Round 1 Bug Fixes
+300-# ============================================================================
+301-
+302:class TestHardeningBugFixes:
+303:    """Tests for bugs found in hardening round 1."""
+304-
+305-    def test_stop_doesnt_kill_external_espeak(self):
+306:        """Bug fix: stop() should only kill teller's process, not all espeak."""
+307-        import subprocess
+308-        import time
+--
+331-    
+332-    def test_empty_speak_calls_stop(self):
+333:        """Bug fix: speak("") should call stop() like any other speak."""
+334-        from teller import get_handler
+335-        from unittest.mock import MagicMock, patch
+--
+352-    
+353-    def test_set_default_handler_uses_singleton(self):
+354:        """Bug fix: set_default_handler should use singleton from _handlers."""
+355-        from teller import set_default_handler
+356-        import teller
+
+tome/PHASE3-RUNNABILITY-HONEST.md
+28-→ A clean `pip install -e .` followed by `python tome.py` raises `ModuleNotFoundError: No module named 'pyperclip'` at import time. The app cannot start on a fresh environment. **One-line fix:** add `pyperclip>=1.8.0` to dependencies.
+29-
+30:(Note: the existing `.venv` reportedly has pyperclip 1.11.0 installed per Phase 2, so the app *might* run in *this* venv — but that's an undeclared, accidental dependency, not a reproducible install.)
+31-
+32-### Conflicting pytest config ❌
+
+tome/PHASE3-RUNNABILITY-DEFINITIVE-FINAL.md
+37-pyperclip is **commented out** as a future dependency. A fresh `pip install -e .` will NOT install pyperclip, causing an immediate `ImportError` when importing `tome`.
+38-
+39:pyperclip IS installed in the current venv (1.11.0) — presumably via manual `pip install`. This masks the bug for anyone working in the existing venv.
+40-
+41-**handlers.py** does it RIGHT — imports pyperclip at function level (lazy imports at lines 204, 470, 635, 713, 1085). This means `import handlers` succeeds even without pyperclip; only clipboard operations fail at runtime.
+
+store/test_store.py
+654-    def test_get_after_set_returns_value(self, store):
+655-        """Can get a config value that was set."""
+656:        store.set_config("debug", "on")
+657:        assert store.get_config("debug") == "on"
+658-
+659-    def test_get_ignores_default_when_value_exists(self, store):
+660-        """Default is ignored when value exists."""
+661:        store.set_config("debug", "on")
+662:        assert store.get_config("debug", "off") == "on"
+663-
+664-
+
+tome/PHASE3-RUNNABILITY-STATIC-ANALYSIS.md
+7-## Executive Summary
+8-
+9:**Verdict: RSP modules are sound. Top-level wiring has a blocking dependency bug. Test configuration has a conflict that causes unintended side effects.**
+10-
+11-[Omitted long context line]
+--
+106-|--------|------------|-------------|-------|
+107-| store/ | ✅ Yes | ✅ Likely | Pure SQLite, no external deps |
+108:| teller/ | ✅ Yes | ✅ Likely | Has text/debug fallback handlers |
+109-| mark/ | ✅ Yes | ✅ Likely | Depends on Store (easily mocked) |
+110-| mode/ | ✅ Yes | ✅ Likely | Uses Protocols, no hard deps |
+--
+143-**Medium confidence** on "tests likely pass" for RSP modules — based on code structure analysis, not actual execution. The .venv exists with pytest and hypothesis installed (verified via .venv/bin/ contents), and pynput is declared in deps, but I couldn't verify actual installation state.
+144-
+145:**Unknown**: Whether pyperclip happens to be installed in the .venv despite not being in pyproject.toml. If manually installed, many of the issues above would be latent (present but not manifesting). The pyproject.toml bug would still be real — it would just be hidden.
+146-
+147----
+
+tome/PHASE4-FEEDBACK-LOOPS-SYNTHESIS.md
+53-
+54-### Fix 2: Mark oracle tests as xfail (15 min)
+55:- Oracle tests in mode/test_mode_oracle.py, store/test_store_oracle.py, teller/test_teller_oracle.py intentionally fail to document known bugs
+56-- This makes the suite permanently red — agents can't distinguish real failures from intentional ones
+57:- **Add `@pytest.mark.xfail(reason="Known bug: ...", strict=True)` to each oracle test**
+58:- `strict=True` means if a bug gets fixed, the test becomes XPASS and alerts the developer
+59-
+60-### Fix 3: Add Makefile + update CLAUDE.md (15 min)
+
+docs/ideas.org
+1:* TODO open urls by default
+2:* TODO Lock data
+3:* TODO undo
+
+tome/PHASE4-AGENT-ITERABILITY-CORRECTED.md
+15-| File | Type | Intent | xfail? |
+16-|------|------|--------|--------|
+17:| `mode/test_mode_oracle.py` | Edge case bug documentation | Docstring: "All tests should FAIL - they expose actual issues" | **YES** — these document real bugs |
+18-| `store/test_store_oracle.py` | Hypothesis property-based testing | Docstring: "Property-based verification of Store invariants. Uses Hypothesis to verify mathematical properties hold for ALL inputs." | **NO** — these SHOULD pass |
+19-| `teller/test_teller_oracle.py` | Hypothesis property-based testing | Docstring: "property-based verification using Hypothesis. Verify mathematical properties hold for ALL inputs." | **NO** — these SHOULD pass |
+--
+27-
+28-The word "oracle" is used for two different testing patterns in this codebase:
+29:1. **Bug oracle** (mode): Tests that encode known bugs as documentation. They FAIL to show the bugs exist.
+30-2. **Property oracle** (store, teller): Tests that verify invariants must hold for ALL inputs. They SHOULD PASS.
+31-
+--
+111-
+112-```python
+113:@pytest.mark.xfail(reason="Known bug: closure capture in get_state", strict=True)
+114-def test_get_state_returns_wrong_mode_state_after_switch(self):
+115-    ...
+116-```
+117-
+118:Apply to each test function in mode/test_mode_oracle.py. `strict=True` means if a bug gets fixed, the test becomes XPASS, prompting removal of the marker.
+119-
+120-**Do NOT add xfail to:**
+
+teller/handlers/debug.py
+1:"""Debug handler - text output with timing and metadata.
+2-
+3:Useful for debugging, logging, and understanding teller behavior.
+4-Shows exactly what would be spoken plus additional context.
+5-"""
+--
+10-
+11-
+12:class DebugHandler(BaseHandler):
+13:    """Handler that outputs text with debug metadata."""
+14-
+15-    @property
+16-    def name(self) -> str:
+17:        return "debug"
+18-
+19-    def speak(self, text: str, speed: int = 270, wait: bool = False) -> None:
+20:        """Print text with debug metadata.
+21-
+22-        Output format:
+23:            [debug] 2024-01-15T10:30:45.123 | speed=270 wait=False
+24-            > text goes here
+25-
+--
+30-        """
+31-        timestamp = datetime.now().isoformat(timespec="milliseconds")
+32:        print(f"[debug] {timestamp} | speed={speed} wait={wait}")
+33-        print(f"> {text}")
+34-
+--
+36-        """Log stop call."""
+37-        timestamp = datetime.now().isoformat(timespec="milliseconds")
+38:        print(f"[debug] {timestamp} | stop() called")
+
+tome/RUNNABILITY-ASSESSMENT-2026-05-29.md
+57-**Fix**: Either install pyperclip and add to dependencies, or make the import conditional.
+58-
+59:Note: pyperclip is explicitly commented out in pyproject.toml:
+60-```toml
+61-# Future: pyperclip will be needed when clipboard functionality is added
+
+tome.py
+153-            "options",
+154-            options_handler,
+155:            message="Options: Press s for strip input, d for debug mode, a for default action",
+156-        )
+157-        self.mode.register(
+
+tome/PHASE3-RUNNABILITY-VERDICT.md
+32-- Auto-discovery architecture is clean and extensible.
+33-- `text` handler: Pure Python, always works.
+34:- `debug` handler: Pure Python, always works.
+35-- `espeak` handler: Requires `espeak-ng` system binary. Fails gracefully if missing.
+36-- Discovery gracefully handles missing handlers (logs warning, continues).
+
+tome/FINDING-feedback-loops.md
+15-  - **Standard** (`test_*.py`): Conventional pytest unit tests with fixtures
+16-  - **Gremlin** (`test_*_gremlin.py`): Adversarial/fuzzing tests that try to break components with malicious inputs
+17:  - **Oracle** (`test_*_oracle.py`): Edge case and property-based tests using Hypothesis, designed to expose real bugs
+18-- **Coverage across all 5 modules:** store, teller, mark, mode, listener
+19-- **Property-based testing:** 20+ `@given` decorators in store/test_store_oracle.py alone
+--
+68-### What Works Well
+69-1. **Test-driven verification**: Agent can run `pytest` to check if changes break anything
+70:2. **Three-tier testing catches different failure modes**: standard tests catch regressions, gremlins catch input handling bugs, oracles catch property violations
+71-3. **Agentic testing docs** tell the agent exactly how to construct test inputs
+72-4. **Text handler** eliminates espeak dependency for testing
+--
+86-1. **Add test command to CLAUDE.md**: `pytest` or `.venv/bin/pytest` with explanation of markers
+87-2. **Resolve pytest config conflict**: Remove `[tool.pytest.ini_options]` from pyproject.toml or consolidate into one location
+88:3. **Add ruff** for linting + formatting in one tool: minimal config, fast execution, catches real bugs
+89-
+90-### Medium Priority (Code Quality)
+91:4. **Add mypy or pyright**: Even basic type checking catches bugs agents commonly introduce
+92-5. **Add a Makefile** with `test`, `lint`, `format`, `check` targets
+93-6. **Add pre-commit config**: Catches issues before they enter the repo
+
+teller/base.py
+11-
+12-    Handlers are pluggable backends for teller. Each handler implements
+13:    a different output mechanism (espeak, text, debug, etc.).
+14-
+15-    To create a new handler:
+
+tome/PHASE3-RUNNABILITY-COMPREHENSIVE.md
+55-- **Imports:** logging, abc, importlib (all stdlib)
+56-- **Handler discovery:** Auto-discovers handlers from teller/handlers/ directory
+57:- **Handlers:** espeak.py (requires espeak binary), text.py (stdout), debug.py
+58-- **Tests:** test_teller.py (17.1KB), test_teller_gremlin.py (13.0KB), test_teller_oracle.py
+59-- **Prediction:** ✅ Tests should pass (espeak handler may warn if binary not installed, but shouldn't fail tests)
+--
+76-- **Tests:** test_listener.py (22.8KB)
+77-- **Prediction:** ✅ Tests should pass (MockListener used for testing, pynput import at module level but tests likely mock it)
+78:- **Note:** pynput requires X11/display for actual keyboard capture - headless environments may have import issues
+79-
+80----
+
+tome/FINDING-agent-iterability-consolidated.md
+76-
+77----
+78:*Note: skein tool unavailable in this environment — findings saved to file*
+
+ARCHITECTURE.md
+319-- API quota limits can break storage
+320-- Embedding model changes (e.g., OpenAI deprecation) require migration
+321:- Cosine similarity bugs are subtle (wrong results, not crashes)
+322-- BLOB serialization format locked in (migration would be painful)
+323-
+
+teller/test_teller_oracle.py
+20-    """Properties that must hold for all handlers."""
+21-
+22:    @given(handler_name=st.sampled_from(["text", "debug", "espeak"]))
+23-    @oracle_settings
+24-    def test_name_is_nonempty_string(self, handler_name):
+--
+29-        assert len(handler.name) > 0
+30-
+31:    @given(handler_name=st.sampled_from(["text", "debug", "espeak"]))
+32-    @oracle_settings
+33-    def test_name_is_lowercase(self, handler_name):
+--
+37-        assert handler.name == handler.name.lower()
+38-
+39:    @given(handler_name=st.sampled_from(["text", "debug", "espeak"]))
+40-    @oracle_settings
+41-    def test_stop_never_raises(self, handler_name):
+--
+67-    @given(text=st.text(max_size=1000))
+68-    @oracle_settings
+69:    def test_debug_handler_speak_never_crashes(self, text):
+70:        """debug handler speak() handles any string."""
+71-        from teller import get_handler
+72:        handler = get_handler("debug")
+73-        # Should not raise
+74-        handler.speak(text)
+--
+123-            assert handler.name == name
+124-
+125:    @given(handler_name=st.sampled_from(["text", "debug", "espeak"]))
+126-    @oracle_settings
+127-    def test_get_handler_returns_fresh_instance(self, handler_name):
+--
+133-
+134-    @given(name=st.text(min_size=1, max_size=50).filter(
+135:        lambda x: x not in ["text", "debug", "espeak"]
+136-    ))
+137-    @oracle_settings
+--
+191-    """Cross-cutting consistency properties."""
+192-
+193:    @given(handler_name=st.sampled_from(["text", "debug", "espeak"]))
+194-    @oracle_settings
+195-    def test_handler_name_matches_requested(self, handler_name):
+
+tome/PHASE4-FINAL-VERDICT.md
+6-## Executive Summary
+7-
+8:Tome has one of the better Python test architectures I've seen in a small project: three-tier testing (stable, gremlin/adversarial, oracle/bug-exposing), Hypothesis property-based tests, good fixture isolation with `tmp_path`, and a thoughtful `docs/agentic-testing.md` guide. But an agent cannot iterate on this codebase today because every feedback signal is poisoned or missing.
+9-
+10-## Feedback Loops: What Exists
+--
+27-### 2. Oracle Tests Permanently Red (CRITICAL)
+28-
+29:`test_mode_oracle.py`, `test_store_oracle.py`, and `test_teller_oracle.py` contain tests **designed to fail** — they expose real bugs documented in docstrings. But they lack `@pytest.mark.xfail` markers. Result: the suite is permanently red. An agent runs pytest, sees failures, wastes cycles trying to "fix" intentional failures. It cannot distinguish regressions from expected failures.
+30-
+31-### 3. pyperclip Import Crash (HIGH)
+
+teller/test_teller.py
+45-    """Every handler must satisfy the protocol."""
+46-
+47:    @pytest.fixture(params=["text", "debug", "espeak"])
+48-    def handler(self, request):
+49-        """Parametrized fixture for all handler types."""
+--
+223-
+224-# ============================================================================
+225:# Debug Handler
+226-# ============================================================================
+227-
+228:class TestDebugHandler:
+229-    """Text output with timing and metadata."""
+230-
+231-    @pytest.fixture
+232-    def handler(self):
+233:        from teller.handlers.debug import DebugHandler
+234:        return DebugHandler()
+235-
+236:    def test_name_is_debug(self, handler):
+237:        assert handler.name == "debug"
+238-
+239-    def test_includes_spoken_text(self, handler, capsys):
+--
+268-        handler.speak("test")
+269-        captured = capsys.readouterr()
+270:        assert "debug" in captured.out.lower()
+271-
+272-
+--
+390-        assert isinstance(handlers, list)
+391-        assert "text" in handlers
+392:        assert "debug" in handlers
+393-
+394-    def test_set_default_handler_changes_default(self):
+--
+399-            teller.set_default_handler("text")
+400-            assert teller._default_handler.name == "text"
+401:            teller.set_default_handler("debug")
+402:            assert teller._default_handler.name == "debug"
+403-        finally:
+404-            teller._default_handler = original
+--
+418-    """Boundary conditions and unusual inputs."""
+419-
+420:    @pytest.fixture(params=["text", "debug"])
+421-    def handler(self, request):
+422-        """Test edge cases on non-audio handlers."""
+
+tome/PHASE4-AGENT-ITERABILITY-VERDICT.md
+61-- Unused imports accumulate silently
+62-- Style drift goes undetected
+63:- An agent can introduce subtle bugs that tests don't catch
+64-
+65:**Recommendation:** Add ruff. It's fast, zero-config by default, catches real bugs.
+66-
+67-### 2. CI Pipeline (Missing — Medium Impact)
+--
+163-```
+164-
+165:Fast linting catches bugs that tests miss.
+166-
+167-## Summary
+
+tome/PHASE3-RUNNABILITY-STATIC-FINAL.md
+63-- `test_teller.py`, `test_teller_gremlin.py`, `test_teller_oracle.py`
+64-- Protocol-based design with pluggable handlers
+65:- TextHandler (stdout) and DebugHandler work without system dependencies
+66-- EspeakHandler gracefully degrades if espeak binary missing (logs warning, returns None)
+67-- Auto-discovery system is clean and well-structured
+
+tome/PHASE4-FEEDBACK-LOOPS-INDEPENDENT.md
+31-### Three-Tier Test Strategy
+32-- **Regular tests**: Happy paths, edge cases, comprehensive coverage
+33:- **Oracle tests**: Known bugs documented as living tests (intentionally failing)
+34-- **Gremlin tests**: Adversarial property-based attacks via Hypothesis
+35-
+--
+68-### 2. Oracle Tests Are Permanently Red (HIGH IMPACT)
+69-
+70:`test_mode_oracle.py`, `test_store_oracle.py`, and `test_teller_oracle.py` contain intentionally-failing tests that document known bugs. But they lack `@pytest.mark.xfail` markers, so the test suite is permanently red. An agent cannot distinguish expected failures from regressions.
+71-
+72-### 3. No Makefile or Task Runner (MEDIUM IMPACT)
+--
+117-
+118-### Fix 2: Mark oracle tests as xfail (15 min)
+119:**Impact:** Makes the suite green while preserving bug documentation  
+120-**Action:** In each oracle test file, add:
+121-```python
+122:@pytest.mark.xfail(reason="Known bug: [description]", strict=True)
+123-```
+124:`strict=True` means if a bug gets fixed, the test becomes XPASS (unexpected pass), prompting removal of the xfail marker.
+125-
+126-### Fix 3: Add Makefile + update CLAUDE.md (15 min)
+
+tome/PHASE4-AGENT-ITERABILITY-FINAL-ASSESSMENT.md
+36-- No ruff, flake8, mypy, black, isort, pylint, or any static analysis tool
+37-- An agent can introduce syntax errors, unused imports, type mismatches — no automated way to catch them
+38:- **Impact:** Agent must rely solely on tests catching issues, which miss many bug classes
+39-
+40-### 2. No CI/CD
+--
+99-2. **Add test command to CLAUDE.md** — Add: `pytest store/ teller/ mark/ mode/ listener/ -x --tb=short`
+100-
+101:3. **Add ruff** — Zero-config linter, catches real bugs, fast. Add to pyproject.toml:
+102-   ```toml
+103-   [tool.ruff]
+
+tome/RUNNABILITY-FINDING-2026-05-28.md
+50-- Root integration tests: test_integration.py, test_wire.py, test_handlers.py
+51-
+52:This isn't necessarily a bug, but it contradicts the pyproject.toml intent. The root-level tests are substantial (test_handlers.py is 45.8KB).
+53-
+54-## Test Runnability Prediction
+--
+98-3. **Test suite should pass** — tests don't touch the pyperclip import path
+99-4. **pytest.ini overrides pyproject.toml** test discovery — may be intentional or not
+100:5. **espeak is a runtime dep** for the default teller handler, but text/debug modes work without it
+
+tome/PHASE4-FEEDBACK-LOOPS.md
+97-| No coverage reporting | Agent can't see if new code is tested |
+98-| No `make test` one-liner in CLAUDE.md | Agent's first action ("how do I test?") has no answer |
+99:| No way to distinguish expected vs unexpected failures | Agent treats all red as bugs |
+100-
+101----
+--
+152-
+153-```python
+154:@pytest.mark.xfail(reason="Known bug: closure capture in get_state", strict=True)
+155-def test_get_state_closure_capture(self):
+156-    ...
+157-```
+158-
+159:`strict=True` means if the bug gets fixed, the test starts passing, and pytest flags it as `XPASS` (unexpected pass) — prompting the agent or human to remove the xfail marker. The tests still document the bugs, still run, but don't pollute the pass/fail signal.
+160-
+161-### Fix 3: Add Makefile + update CLAUDE.md
+--
+194-Worth calling out what's working, because it's genuinely rare:
+195-
+196:1. **Three-tier test strategy**: Regular → Oracle → Gremlin gives graduated confidence. Regular tests verify happy paths. Oracle tests encode known bugs as living documentation. Gremlin tests adversarially attack edge cases. This is more sophisticated than most production codebases.
+197-
+198-2. **Protocol-based DI without frameworks**: No pytest fixtures with complex setup, no mock libraries, no dependency injection containers. Just Python protocols and lightweight mock classes. An agent can read the test, understand the mock, and extend it without learning a framework.
+
+tome/AGENT-ITERABILITY-ASSESSMENT.md
+64-```
+65-
+66:These tests document **real bugs** (closure capture in `get_state`, race conditions in `switch()`, etc.) by writing tests that fail against the current implementation. This is a valid technique for humans who read the docstrings. For an agent, it's a trap:
+67-
+68-1. Agent runs `pytest`
+69-2. Sees failures in `test_mode_oracle.py`
+70:3. Attempts to fix the "bugs" by modifying `mode.py`
+71-4. Either breaks working code or wastes cycles on intentional behavior
+72-5. Can't distinguish "test suite is green" from "some failures are expected"
+73-
+74:**Fix:** Mark these tests with `@pytest.mark.xfail(reason="Known bug: closure capture in get_state")`. They still document the bug, still run, but pytest reports them as `xfail` (expected failure) rather than failure. The suite goes green.
+75-
+76:Alternatively, move them to a `known_bugs/` directory excluded from default test discovery.
+77-
+78-### Issue 2: Conflicting pytest Configurations 🔴
+--
+145-- `mode/test_mode_oracle.py` — minimal `speak()` and `stop()`
+146-
+147:The syndic version uses `tell()` while the real Teller uses `speak()`. This is a latent bug — the syndic mock doesn't match the protocol.
+148-
+149-**Fix:** Create `conftest.py` files with shared fixtures, or a `test_utils.py` module. At minimum, ensure all mocks match the actual Protocol interface.
+--
+160-```
+161-
+162:An agent sees a test that's commented out, labeled "BROKE", and doesn't know what to do. Is this a TODO? A known issue? Should it be fixed?
+163-
+164-**Fix:** Either:
+--
+188-- `@pytest.mark.slow` for Hypothesis tests
+189-- `@pytest.mark.integration` for root-level test files
+190:- `@pytest.mark.xfail` for known-bug oracle tests
+191-
+192----
+
+tome/PHASE3-RUNNABILITY-DEFINITIVE.md
+27-3. Remove the top-level import from tome.py and use conditional import where needed
+28-
+29:**Note:** `handlers.py` does NOT import pyperclip at the top level (its imports are: os, re, webbrowser, listener, mode). The pyperclip usage is likely inside `clipboard_handler()`. This means tests that import handlers directly (test_handlers.py, test_integration.py, test_wire.py) bypass this blocker.
+30-
+31-## Finding 2: pytest Configuration Conflict
+--
+81-| mark | test_mark.py, test_gremlin_attacks.py | Should pass — depends on store only |
+82-| mode | test_mode.py, test_mode_syndic.py | Should pass — uses mock teller/store |
+83:| mode | test_mode_oracle.py | **Expected failures** — documents closure bug |
+84-| listener | test_listener.py | Should pass — uses MockListener |
+85-
+86:## Finding 5: Known mode.py Closure Bug
+87-
+88-**Severity:** Low (known and documented)
+
+tome/COMPREHENSIVE-STATIC-ASSESSMENT.md
+13-The codebase is **mature and actively maintained** (3 pytest version generations, 30 Hypothesis constant files, extensive test suites with gremlin/oracle/syndic testing patterns). However, it has accumulated technical debt in documentation and project hygiene.
+14-
+15:**Verdict: Solid architecture, minor hygiene issues, one real bug.**
+16-
+17----
+--
+66----
+67-
+68:## 2. Bugs and Issues
+69-
+70:### 2.1 REAL BUG: Undeclared pyperclip Dependency
+71-
+72-**Severity: Medium** (works now, breaks on fresh install)
+
+tome/ARCHITECTURAL-ASSESSMENT-2026-05-22.md
+19-|--------|---------|------|-------|
+20-| **Store** | SQLite-backed hierarchical data storage | 24.5KB | 3 test files (store, gremlin, oracle) |
+21:| **Teller** | TTS output abstraction (espeak/text/debug) | Multi-file | 3 test files (teller, gremlin, oracle) |
+22-| **Mark** | Navigation state (buffer position, stack) | 4.4KB | 1 test file (40.6KB!) + gremlin |
+23-| **Mode** | Modal state machine, routes KeyEvents | 9.6KB | 3 test files (mode, oracle, syndic) |
+
+tome/RUNNABILITY-ASSESSMENT.md
+76-**Files:** `teller/handlers/espeak.py`, README
+77-
+78:The README mentions espeak as a prerequisite but there's no check or graceful fallback at the application level. The teller module handles this reasonably (it has text and debug handlers as alternatives), but `tome.py` defaults to espeak mode.
+79-
+80-### 4. README is Stale
+--
+123-| mode/ | ✅ Yes | ✅ Likely (needs Protocol implementations) | N/A (library) |
+124-| listener/ | ⚠️ Needs pynput | ✅ Likely (MockListener) | N/A (library) |
+125:| teller/ | ✅ Yes | ✅ Likely (text/debug handlers) | N/A (library) |
+126-| tome.py | ❌ Missing pyperclip | ⚠️ Not directly | ❌ Needs pyperclip + espeak + terminal |
+127-
+
+tome/RUNNABILITY-STATIC-ANALYSIS-CURRENT.md
+44-|-----|---------|--------|
+45-| **Store** (`store/store.py`, 736 lines) | SQLite-backed hierarchical data storage | Solid - proper schema init, dict_factory, soft delete |
+46:| **Teller** (`teller/`) | TTS output with pluggable handlers | Clean - auto-discovery, BaseHandler ABC, espeak/text/debug backends |
+47-| **Mark** (`mark/mark.py`, 162 lines) | Navigation state (buffer position, stack) | Clean - proper validation, cycle detection in path traversal |
+48-| **Mode** (`mode/mode.py`, 287 lines) | Modal state machine with per-mode state | Well-designed - protocols, on-enter/exit hooks, isolated state |
+
+tome/PHASE4-AGENT-ITERABILITY-DEFINITIVE.md
+49-- System has linters via pyenv shims (ruff, flake8, pylint, mypy, black, isort) but none are configured for the project
+50-- No linters installed in project .venv
+51:- **Impact:** Agent can introduce style inconsistencies, type errors, or subtle bugs with zero automated catch
+52-
+53-### 2. No CI/CD Pipeline (Critical)
+
+mode/test_mode_oracle.py
+2-Oracle edge case tests for mode.py
+3-
+4:Tests demonstrate REAL bugs found through edge case analysis.
+5-All tests should FAIL - they expose actual issues in the code.
+6-"""
+--
+39-
+40-# ============================================================================
+41:# ISSUE 1: Closure Capture Bug in get_state Lambda
+42-# Severity: HIGH
+43-# ============================================================================
+--
+68-
+69-        # Try to access mode A's state again
+70:        # BUG: This returns mode B's state instead!
+71-        state_after = ctx.get_state()
+72-        captured_states.append(('after_switch', state_after))
+--
+242-    # This test PASSES but demonstrates unexpected behavior:
+243-    # Mode transitions can complete without the new mode's handler running.
+244:    # Not a bug per se, but a subtle edge case in the state machine semantics.
+245-
+246-
+--
+254-    Documents behavior: Switching to current mode is allowed.
+255-
+256:    Not a bug, but worth documenting: switch('mode_a') while already in
+257-    mode_a succeeds. The get_state() lambda is recreated, but points to
+258-    same state dict.
+--
+300-    - self._state dicts (read/written by handlers)
+301-
+302:    Not a current bug (single-threaded listener), but important to document.
+303-    """
+304-    # This is just documentation, no test
+
+tome/PHASE4-AGENT-ITERABILITY-INDEPENDENT.md
+63-- pytest.ini takes precedence (pytest checks ini files first)
+64-- Root-level tests (`test_handlers.py`, `test_integration.py`, `test_wire.py`) ARE discovered via pytest.ini but WOULD NOT be discovered via pyproject.toml alone
+65:- This is a latent bug waiting to bite an agent that reads pyproject.toml but not pytest.ini
+66-
+67-## The Feedback Loop
+
+tome/synthesis-20260702-initiatives.md
+65-**Time:** 15 minutes | **Priority:** HIGH | **Depends on:** Initiative 2
+66-
+67:Oracle tests (`*_oracle.py`) are intentionally-failing documentation of known bugs. Without xfail markers, agents can't distinguish intentional failures from regressions.
+68-
+69-**Fix:** Add to each oracle test:
+70-```python
+71:@pytest.mark.xfail(strict=True, reason='documents known bug: <description>')
+72-```
+73-
+
+tome/PHASE4-AGENT-ITERABILITY-COMPREHENSIVE.md
+113-- `.venv` likely lacks pyperclip
+114-- **Impact:** `import tome` or `from tome import App` crashes immediately
+115:- Note: `test_integration.py` works by importing primitives directly, bypassing tome.py
+116-
+117-### 3.3 Conflicting pytest Configuration (MODERATE)
+
+tome/FINDING-phase4-feedback-loops-final.md
+95-In every oracle test file (`test_mode_oracle.py`, `test_store_oracle.py`, `test_teller_oracle.py`):
+96-```python
+97:@pytest.mark.xfail(reason="Known bug: closure capture in get_state", strict=True)
+98-def test_get_state_closure_capture(self):
+99-    ...
+100-```
+101:`strict=True` means if the bug gets fixed, pytest flags it as XPASS — prompting removal of the marker.
+102-
+103-### Fix 3: Add Makefile + update CLAUDE.md (15 min) — GIVES AGENTS A FRONT DOOR
+
+mode/test_mode.py
+570-        """get_state() returns same dict even if handler switches modes.
+571-
+572:        Bug found by gremlin/oracle: if get_state lambda captures _current
+573-        by reference instead of by value, switching modes mid-handler
+574-        causes get_state() to return the wrong mode's state.
+--
+771-        def dynamic_handler(event, context):
+772-            # Dynamically register and switch to new mode
+773:            # Note: handler needs access to Mode instance for this
+774-            pass
+775-

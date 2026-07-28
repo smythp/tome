@@ -1,0 +1,1335 @@
+handlers.py
+202-        Escape - Cancel, return to read mode
+203-    """
+204:    import pyperclip
+205-
+206-    # Handle escape
+--
+219-
+220-    # Get clipboard content
+221:    data = pyperclip.paste()
+222-    if data is None:
+223-        data = ""
+--
+468-        Escape / other char - Exit to read mode
+469-    """
+470:    import pyperclip
+471-
+472-    state = ctx.get_state()
+--
+545-            if current_index < len(entries):
+546-                value = entries[current_index].get("value", "")
+547:                pyperclip.copy(value)
+548-                ctx.teller.speak("Copied to clipboard")
+549-        elif char == "b" and entries:
+--
+558-                    ctx.teller.speak("Not a valid URL")
+559-        elif char == "j":
+560:            clipboard = pyperclip.paste()
+561-            ctx.teller.speak(str(clipboard) if clipboard else "Clipboard is empty")
+562-    else:
+--
+633-def _handle_all_mode_action(event: KeyEvent, state: dict, ctx: ModeContext) -> None:
+634-    """Handle the action key after Ctrl+A (all mode) in list mode."""
+635:    import pyperclip
+636-
+637-    # Clear the flag first
+--
+649-        values = [item.get("value", "") for item in items]
+650-        combined = "\n".join(values)
+651:        pyperclip.copy(combined)
+652-        ctx.teller.speak(f"Copied {len(items)} items")
+653-
+--
+711-        ? - Help
+712-    """
+713:    import pyperclip
+714-    from listener import Modifier
+715-
+--
+832-            if items and 0 <= current_index < len(items):
+833-                value = items[current_index].get("value", "")
+834:                pyperclip.copy(value)
+835-                ctx.teller.speak("Copied")
+836-            else:
+--
+879-    elif char == "a":
+880-        # Append clipboard content (becomes newest = highest number)
+881:        clipboard = pyperclip.paste()
+882-        if clipboard:
+883-            list_id = state.get("list_id")
+--
+893-    elif char == "e":
+894-        # Prepend clipboard content (becomes item 1 = oldest)
+895:        clipboard = pyperclip.paste()
+896-        if clipboard:
+897-            list_id = state.get("list_id")
+--
+907-    elif char == "i":
+908-        # Insert clipboard at current position
+909:        clipboard = pyperclip.paste()
+910-        if clipboard:
+911-            list_id = state.get("list_id")
+--
+1083-        Backspace - Go back (exit buffer)
+1084-    """
+1085:    import pyperclip
+1086-    from listener import Modifier
+1087-
+--
+1141-        if last.get("value"):
+1142-            if char == "c":
+1143:                pyperclip.copy(last["value"])
+1144-                ctx.teller.speak("Copied", wait=True)
+1145-                quit_app(ctx)
+--
+1172-
+1173-            elif char == "y":
+1174:                data = pyperclip.paste() or ""
+1175-                strip_input = ctx.store.get_config("strip_input", "on") == "on"
+1176-                if strip_input:
+--
+1223-
+1224-        elif char == "j":
+1225:            clipboard = pyperclip.paste()
+1226-            ctx.teller.speak(str(clipboard) if clipboard else "Clipboard is empty")
+1227-            return
+--
+1290-            quit_app(ctx)
+1291-        else:
+1292:            pyperclip.copy(value)
+1293-            ctx.teller.speak("Copied", wait=True)
+1294-            quit_app(ctx)
+
+RUNNABILITY_FINDINGS.md
+25-From code inspection, the project requires at minimum:
+26-- `pynput` (keyboard handling)
+27:- `pyperclip` (clipboard operations)
+28-- `pytest` (testing)
+29-- `hypothesis` (property-based testing, evidenced by `.hypothesis/` directory)
+
+reference.py
+4-# dependencies = [
+5-#     "pynput",
+6:#     "pyperclip",
+7-# ]
+8-# ///
+--
+17-import sqlite3
+18-import datetime
+19:from pyperclip import copy, paste
+20-from utilities import dict_factory, get_global_history
+21-
+
+pyproject.toml
+15-]
+16-
+17:# Future: pyperclip will be needed when clipboard functionality is added
+18:# clipboard = ["pyperclip>=1.8.0"]
+19-
+20-[build-system]
+
+tome/PHASE3-RUNNABILITY-LIVE-ASSESSMENT.md
+9-**Verdict: The app crashes on startup. Tests likely work for individual modules but `tome.py` itself is broken.**
+10-
+11:The main entry point (`tome.py`) will crash immediately with `ImportError: No module named 'pyperclip'` due to an unconditional import of an undeclared dependency. Individual RSP modules (store, teller, mark, mode, listener) and their test suites should work fine since they don't depend on pyperclip.
+12-
+13-## Critical Findings
+14-
+15:### 1. BLOCKER: pyperclip Import Crashes Startup
+16-
+17-**File:** `tome.py`, line 32  
+18:**Issue:** `import pyperclip` is unconditional at module level  
+19:**But:** pyperclip is NOT in `pyproject.toml` dependencies — it's explicitly commented out as "Future"  
+20-**Impact:** `python tome.py` and `python tome.py --text` both crash before reaching `main()`  
+21:**Fix:** Remove or guard the import. Notably, `handlers.py` (which contains `clipboard_handler`) does NOT import pyperclip either — the import in tome.py appears to be dead/premature code.
+22-
+23-```python
+24-# tome.py line 31-32
+25-# External
+26:import pyperclip  # <-- CRASHES HERE
+27-```
+28-
+29-```toml
+30-# pyproject.toml line 17
+31:# Future: pyperclip will be needed when clipboard functionality is added
+32:# clipboard = ["pyperclip>=1.8.0"]
+33-```
+34-
+--
+64-| `listener/` module + tests | ✅ Works | High | Keyboard abstraction layer |
+65-| `test_integration.py` | ✅ Works | High | Imports modules directly, not tome.py; uses text teller |
+66:| `test_handlers.py` | ⚠️ Probably works | Medium | 45KB — imports handlers.py which doesn't need pyperclip |
+67-| `test_wire.py` | ❓ Unknown | Low | Not inspected |
+68-| `.venv` environment | ✅ Exists | High | Python 3.12, pytest 9.0.2, hypothesis present (.pyc evidence) |
+--
+73-| Component | Status | Issue |
+74-|-----------|--------|-------|
+75:| `python tome.py` | ❌ Crashes | ImportError: pyperclip |
+76-| `python tome.py --text` | ❌ Crashes | Same — import is before argparse |
+77:| `import tome` | ❌ Crashes | Module-level pyperclip import |
+78-| README instructions | ❌ Wrong | References nonexistent files |
+79:| Any test importing tome.py | ❌ Crashes | Transitive pyperclip failure |
+80-
+81-## System Dependencies
+--
+89-## Easy Fixes (Priority Order)
+90-
+91:1. **Remove `import pyperclip` from tome.py** — It's unused. handlers.py doesn't import it either. This unblocks the entire app.
+92-2. **Update README** — Document actual project structure, actual test commands, actual prerequisites.
+93-3. **Reconcile pytest config** — Either delete pytest.ini (use pyproject.toml) or align them. The conflict creates confusion.
+--
+97-## Architecture Observation
+98-
+99:The project has a clean modular architecture (RSP primitives) that's well-tested at the module level. The breakage is entirely at the integration/app layer — specifically one premature import. The test_integration.py file cleverly avoids this by importing modules directly rather than through tome.py. This suggests the pyperclip import was added to tome.py after the integration test was written, and nobody ran `python tome.py` since.
+100-
+101-## Conclusion
+
+tome/PHASE4-AGENT-ITERABILITY-DEFINITIVE.md
+137-8. **Add GitHub Actions CI** running test-safe on every push
+138-9. **Add pre-commit hooks** for ruff + mypy
+139:10. **Add pyperclip** to dependencies (referenced in pyproject.toml comment, needed for clipboard features)
+140-
+141-## Agent Iteration Workflow (Current State)
+
+tome/PHASE3-RUNNABILITY-FINAL.md
+11----
+12-
+13:## 🔴 BLOCKER: `pyperclip` imported but not installed
+14-
+15-**Impact:** `python tome.py` crashes immediately with `ModuleNotFoundError`
+16-
+17-**Evidence:**
+18:- `tome.py` line 32: `import pyperclip` — unconditional, top-level import
+19:- `pyproject.toml`: pyperclip is NOT in `dependencies` (commented out as future)
+20:- `uv.lock`: pyperclip absent (grep confirms zero matches)
+21:- `handlers.py`: 17 occurrences of `pyperclip` across 6+ handler functions (local imports)
+22-
+23:**Root cause:** The import was added to `tome.py` before pyperclip was added as a dependency. The `pyproject.toml` has a comment: `# Future: pyperclip will be needed when clipboard functionality is added` — but it's already being used extensively.
+24-
+25-**Fix options (pick one):**
+26:1. **Add dependency:** Add `"pyperclip>=1.8.0"` to `pyproject.toml` dependencies, run `uv lock && uv sync`
+27:2. **Defer import:** Remove top-level `import pyperclip` from `tome.py` (handlers.py already uses local imports via `import pyperclip` inside each function that needs it)
+28-3. **Both:** Add the dependency AND keep the local import pattern (most robust)
+29-
+30:**Recommendation:** Option 3. Add pyperclip to dependencies (it's clearly needed — 17 usages in handlers.py) AND remove the top-level import from tome.py line 32 since every handler already does its own local import.
+31-
+32----
+--
+110-1. **Clean RSP design** — Each module (Store, Teller, Mark, Mode, Listener) is a self-contained primitive with its own Protocol definitions to avoid circular imports.
+111-
+112:2. **Handler pattern** — `handlers.py` contains all mode handler functions. These use local `import pyperclip` inside function bodies (good practice for optional deps), but `tome.py` defeats this by importing pyperclip unconditionally at module level.
+113-
+114-3. **Mode registration** — `tome.py` calls `self.mode.register('read', read_handler, message='Read from tome')` which is a convenience API on `Mode.register()` that accepts `(name, handler, **kwargs)` and wraps into `ModeConfig`.
+--
+120-## Priority Fix Order
+121-
+122:1. **[CRITICAL]** Add `pyperclip>=1.8.0` to pyproject.toml dependencies + remove top-level import from tome.py line 32
+123-2. **[NICE-TO-HAVE]** Guard pynput import in listener.py for headless environments
+124-3. **[COSMETIC]** Resolve pytest.ini vs pyproject.toml testpaths conflict
+
+tome/COMPREHENSIVE-STATIC-ASSESSMENT.md
+68-## 2. Bugs and Issues
+69-
+70:### 2.1 REAL BUG: Undeclared pyperclip Dependency
+71-
+72-**Severity: Medium** (works now, breaks on fresh install)
+--
+74-`tome.py` line 32:
+75-```python
+76:import pyperclip
+77-```
+78-
+79-`pyproject.toml` lines 17-18:
+80-```python
+81:# Future: pyperclip will be needed when clipboard functionality is added
+82:# clipboard = ["pyperclip>=1.8.0"]
+83-```
+84-
+85:pyperclip IS installed in the venv (1.11.0 in site-packages), so it works currently. But it's not declared as a dependency — a fresh `pip install` or `uv sync` would fail to install it, and `import tome` would crash with `ModuleNotFoundError`.
+86-
+87:**Fix:** Either add `pyperclip>=1.8.0` to `dependencies` in pyproject.toml, or remove the import from tome.py (it may only be used in handlers.py's clipboard mode).
+88-
+89-### 2.2 pytest Configuration Conflict
+--
+187-| pytest | >=7.0.0 (dev) | 9.0.2 | ✅ |
+188-| hypothesis | >=6.0.0 (dev) | 6.152.1 | ✅ |
+189:| pyperclip | commented out | 1.11.0 | ⚠️ Installed but not declared |
+190-
+191-### 5.2 Runtime Requirements
+--
+217-5. **Dual pytest config** — confusing which tests are "supposed" to run
+218-6. **No CI** — no automated test runs, no pre-commit hooks
+219:7. **pyperclip import** — may cause import failure in clean environments
+220-
+221-### 6.3 Recommended Next Steps
+222-
+223:1. **Fix pyperclip**: Add to dependencies or make import conditional
+224-2. **Consolidate pytest config**: Pick pytest.ini OR pyproject.toml, delete the other
+225-3. **Update README**: Fix file references, update Python version
+
+phase4-agent-iterability-findings.md
+51-   "cleaning up duplicate config" can break the test loop without any error.
+52-2. **First-run crash on fresh install (Phase 3 finding).** `tome.py:32` imports
+53:   `pyperclip` unconditionally; `pyproject.toml` keeps pyperclip commented out
+54-   (lines 17-18). A clean `pip install -e .` then `python tome.py` raises
+55-   ImportError. The very first loop a new agent hits is broken.
+--
+87-   `pyproject.toml` and deleting `pytest.ini`, but ONLY after adding the root
+88-   test dirs to `testpaths` so discovery doesn't regress.
+89:3. **Fix the pyperclip import** — either guard it (`try/except ImportError`) or
+90-   uncomment the clipboard optional-dependency and document it.
+91-4. **Add a Makefile** with `test`, `lint`, `setup` targets so the loop is
+
+tome.py
+30-
+31-# External
+32:import pyperclip
+33-
+34-
+
+tome/PHASE3-RUNNABILITY-HONEST.md
+14-
+15-Three separate bash invocations failed:
+16:1. `.venv/bin/python --version && import pynput && import pyperclip`
+17-2. `.venv/bin/python --version`
+18-3. (combined import checks)
+--
+23-
+24-### Will break on fresh install ❌
+25:`tome.py` line 32: `import pyperclip` — unconditional, module-level.
+26:`pyproject.toml` lines 17-18: pyperclip is *commented out*, only declared dependency is `pynput>=1.7.0`.
+27-
+28:→ A clean `pip install -e .` followed by `python tome.py` raises `ModuleNotFoundError: No module named 'pyperclip'` at import time. The app cannot start on a fresh environment. **One-line fix:** add `pyperclip>=1.8.0` to dependencies.
+29-
+30:(Note: the existing `.venv` reportedly has pyperclip 1.11.0 installed per Phase 2, so the app *might* run in *this* venv — but that's an undeclared, accidental dependency, not a reproducible install.)
+31-
+32-### Conflicting pytest config ❌
+--
+46-- Whether the test suite actually passes *today* (the `.pyc` files prove it ran historically under pytest 7.4.3 / 8.3.3 / 9.0.2 / 9.0.3 — but "ran" ≠ "passed", and not recently confirmed).
+47-- Whether `python tome.py --text` reaches an interactive state in *this* venv.
+48:- Whether any of the modules have runtime import errors beyond pyperclip.
+49-- Actual Python version in the venv (symlink points to pyenv 3.12.0, but unconfirmed live).
+50-
+51-## Honest Verdict
+52-
+53:**On a fresh clone:** NOT RUNNABLE without fixes (pyperclip undeclared + espeak undocumented + display requirement).
+54-
+55-**In the existing `.venv` with `--text`:** PLAUSIBLY runnable, but unconfirmed — I was structurally prevented from verifying.
+56-
+57-## Priority Fixes (to make it genuinely runnable + verifiable)
+58:1. Declare `pyperclip>=1.8.0` in `pyproject.toml` dependencies.
+59-2. Document espeak install (`apt install espeak` / `brew install espeak`) in README.
+60-3. Consolidate pytest config — delete `pytest.ini`, add `.` to pyproject testpaths.
+
+test_handlers.py
+434-    def test_stores_clipboard_at_key(self, mock_context_with_mark, monkeypatch):
+435-        """Alphanumeric key stores clipboard content."""
+436:        import pyperclip
+437:        monkeypatch.setattr(pyperclip, "paste", lambda: "test content")
+438-
+439-        ctx = mock_context_with_mark
+--
+452-    def test_strips_content_when_enabled(self, mock_context_with_mark, monkeypatch):
+453-        """Content is stripped when strip_input is on."""
+454:        import pyperclip
+455:        monkeypatch.setattr(pyperclip, "paste", lambda: "  spaced content  ")
+456-
+457-        ctx = mock_context_with_mark
+--
+465-    def test_no_strip_when_disabled(self, mock_context_with_mark, monkeypatch):
+466-        """Content is not stripped when strip_input is off."""
+467:        import pyperclip
+468:        monkeypatch.setattr(pyperclip, "paste", lambda: "  spaced content  ")
+469-
+470-        ctx = mock_context_with_mark
+--
+478-    def test_non_alnum_key_ignored(self, mock_context_with_mark, monkeypatch):
+479-        """Non-alphanumeric keys are ignored."""
+480:        import pyperclip
+481:        monkeypatch.setattr(pyperclip, "paste", lambda: "content")
+482-
+483-        ctx = mock_context_with_mark
+--
+501-    def test_numeric_key_works(self, mock_context_with_mark, monkeypatch):
+502-        """Numeric keys also store content."""
+503:        import pyperclip
+504:        monkeypatch.setattr(pyperclip, "paste", lambda: "numeric content")
+505-
+506-        ctx = mock_context_with_mark
+--
+513-    def test_uses_current_buffer_id(self, mock_context_with_mark, monkeypatch):
+514-        """Stores in the current buffer from mark."""
+515:        import pyperclip
+516:        monkeypatch.setattr(pyperclip, "paste", lambda: "content")
+517-
+518-        ctx = mock_context_with_mark
+--
+526-    def test_empty_clipboard_stores_empty(self, mock_context_with_mark, monkeypatch):
+527-        """Empty clipboard stores empty string."""
+528:        import pyperclip
+529:        monkeypatch.setattr(pyperclip, "paste", lambda: "")
+530-
+531-        ctx = mock_context_with_mark
+--
+796-        """Ctrl+C copies current entry to clipboard."""
+797-        copied = []
+798:        monkeypatch.setattr("pyperclip.copy", lambda x: copied.append(x))
+799-
+800-        ctx = mock_context_for_history
+--
+978-    def test_a_appends_from_clipboard(self, mock_context_for_list, monkeypatch):
+979-        """'a' appends clipboard content to list."""
+980:        monkeypatch.setattr("pyperclip.paste", lambda: "new item")
+981-
+982-        ctx = mock_context_for_list
+--
+997-    def test_a_empty_clipboard_announces(self, mock_context_for_list, monkeypatch):
+998-        """'a' with empty clipboard announces error."""
+999:        monkeypatch.setattr("pyperclip.paste", lambda: "")
+1000-
+1001-        ctx = mock_context_for_list
+--
+1048-        """In all mode, 'c' copies all items to clipboard."""
+1049-        copied = []
+1050:        monkeypatch.setattr("pyperclip.copy", lambda x: copied.append(x))
+1051-
+1052-        ctx = mock_context_for_list
+--
+1228-        """Second press copies value."""
+1229-        copied = []
+1230:        monkeypatch.setattr("pyperclip.copy", lambda x: copied.append(x))
+1231-        monkeypatch.setattr("os._exit", lambda x: None)
+1232-
+--
+1252-    def test_ctrl_j_reads_clipboard(self, mock_context_for_read, monkeypatch):
+1253-        """Ctrl+J reads clipboard."""
+1254:        monkeypatch.setattr("pyperclip.paste", lambda: "clipboard content")
+1255-
+1256-        ctx = mock_context_for_read
+--
+1264-        """Ctrl+C copies last retrieved value."""
+1265-        copied = []
+1266:        monkeypatch.setattr("pyperclip.copy", lambda x: copied.append(x))
+1267-        monkeypatch.setattr("os._exit", lambda x: None)
+1268-
+--
+1277-    def test_ctrl_y_writes_clipboard(self, mock_context_for_read, monkeypatch):
+1278-        """Ctrl+Y writes clipboard to last key."""
+1279:        monkeypatch.setattr("pyperclip.paste", lambda: "pasted")
+1280-        monkeypatch.setattr("os._exit", lambda x: None)
+1281-
+
+RUNNABILITY_ASSESSMENT.md
+52-## What's Broken
+53-
+54:### 1. Missing pyperclip Dependency (BUG)
+55-
+56-**File:** `tome.py`, line 32  
+57:**Impact:** `python tome.py` will crash with `ImportError: No module named 'pyperclip'`
+58-
+59-```python
+60-# tome.py line 32
+61:import pyperclip  # NOT in pyproject.toml dependencies
+62-```
+63-
+64:`pyproject.toml` has pyperclip commented out as a future optional dep:
+65-```toml
+66:# Future: pyperclip will be needed when clipboard functionality is added
+67:# clipboard = ["pyperclip>=1.8.0"]
+68-```
+69-
+70-But `tome.py` imports it unconditionally at module level. Either:
+71:- Add `pyperclip>=1.8.0` to dependencies, or
+72-- Make the import conditional/lazy
+73-
+--
+108-## Recommended Fixes (Priority Order)
+109-
+110:1. **Add pyperclip to dependencies** or make import conditional — fixes the main app crash
+111-2. **Consolidate pytest config** into pyproject.toml, remove pytest.ini — eliminates confusion
+112-3. **Add Makefile** with `setup`, `test`, `lint` targets — standard agent/developer workflow
+
+tome/PHASE4-FEEDBACK-LOOPS-SYNTHESIS.md
+24-| Module (mode) | ★★★★☆ | Excellent tests but oracle suite poisons signal |
+25-| Integration | ★★☆☆☆ | pytest.ini vs pyproject.toml conflict; root-level tests use print/assert not pytest |
+26:| Application | ★☆☆☆☆ | `import pyperclip` crashes tome.py; pynput needs display server |
+27-| Agent entry | ★★☆☆☆ | CLAUDE.md has no test command; no Makefile; agent must guess |
+28-| Meta/orientation | ★★☆☆☆ | 19 assessment files in tome/; no canonical status doc; agent must triage which to read |
+--
+119-| Investigating pytest.ini vs pyproject.toml conflict | 5-15 min |
+120-| Reading 19 assessment files to understand current state | 10-20 min |
+121:| Hitting pyperclip import crash when testing tome.py | 2-5 min |
+122-| **Total per agent session** | **24-55 min wasted** |
+123-
+
+tome/PHASE3-RUNNABILITY-STATIC-ANALYSIS.md
+9-**Verdict: RSP modules are sound. Top-level wiring has a blocking dependency bug. Test configuration has a conflict that causes unintended side effects.**
+10-
+11:[Omitted long matching line]
+12-
+13----
+14-
+15:## BLOCKER: pyperclip Missing from Dependencies
+16-
+17-**Severity:** Blocks `tome.py` import and all clipboard functionality  
+18:**Root cause:** `pyproject.toml` has pyperclip commented out as a future dependency, but code already uses it extensively.
+19-
+20-### Evidence
+--
+22-**tome.py line 32** (unconditional top-level import):
+23-```python
+24:import pyperclip  # crashes immediately if not installed
+25-```
+26-
+27-**pyproject.toml** (commented out):
+28-```toml
+29:# Future: pyperclip will be needed when clipboard functionality is added
+30:# clipboard = ["pyperclip>=1.8.0"]
+31-```
+32-
+33-**handlers.py** (17 occurrences, lazy imports inside functions):
+34:- `clipboard_handler` — line 204: `import pyperclip`
+35:- `history_handler` — line 470: `import pyperclip`
+36:- `_handle_all_mode_action` — line 635: `import pyperclip`
+37:- `list_handler` — line 713: `import pyperclip`
+38:- `read_handler` — line 1085: `import pyperclip`
+39-
+40:Each handler function does `import pyperclip` at the top of the function body, then uses `pyperclip.paste()` or `pyperclip.copy()`. This means:
+41:- ✅ `import handlers` works (no top-level pyperclip import)
+42-- ❌ Calling any clipboard operation fails at runtime
+43-
+44:**test_handlers.py** — Tests import pyperclip directly then monkeypatch it:
+45-```python
+46:import pyperclip
+47:monkeypatch.setattr(pyperclip, "paste", lambda: "test content")
+48-```
+49:The `import pyperclip` line fails before monkeypatch can mock it, so clipboard-related tests in test_handlers.py will also fail.
+50-
+51:Some tests use the string form `monkeypatch.setattr("pyperclip.copy", ...)` which also requires pyperclip to be importable (monkeypatch resolves the string by importing the module).
+52-
+53-### Fix Options
+54-
+55:1. **Add to dependencies** (simplest): Add `"pyperclip>=1.8.0"` to `[project.dependencies]` in pyproject.toml
+56:2. **Make tome.py import lazy**: Remove line 32. handlers.py already uses lazy imports, so tome.py's top-level import is redundant — pyperclip is never called directly in tome.py
+57-3. **Both**: Add to deps AND remove the unnecessary top-level import in tome.py
+58-
+--
+93-- 45.8KB of proper pytest test classes and functions
+94-- Uses fixtures, monkeypatch, MagicMock
+95:- Clipboard tests will fail without pyperclip (see above)
+96-
+97-### Fix
+--
+110-| mode/ | ✅ Yes | ✅ Likely | Uses Protocols, no hard deps |
+111-| listener/ | ⚠️ Needs pynput | ✅ Likely | MockListener available; pynput IS in deps |
+112:| handlers.py | ✅ Yes | ⚠️ Clipboard tests fail | Lazy pyperclip imports = importable but clipboard ops fail |
+113:| tome.py | ❌ No | ❌ No | Top-level `import pyperclip` crashes import |
+114-| test_handlers.py | ⚠️ Partial | ⚠️ Partial | Non-clipboard tests should pass |
+115-| test_integration.py | ⚠️ Side effects | N/A | Script, not pytest-compatible |
+--
+130-### What Needs Work
+131-
+132:1. **tome.py breaks the lazy import pattern.** handlers.py does it right (lazy pyperclip), but tome.py does `import pyperclip` at the top level for no reason (pyperclip is never called directly in tome.py).
+133-2. **Script-style test files** (test_integration.py, test_wire.py) should be converted to pytest functions or moved to a `scripts/` directory.
+134-3. **Stale README** references nonexistent files, wrong Python version.
+--
+139-## Confidence Level
+140-
+141:**High confidence** on the pyperclip blocker and pytest config conflict — these are verified through direct source reading.
+142-
+143-**Medium confidence** on "tests likely pass" for RSP modules — based on code structure analysis, not actual execution. The .venv exists with pytest and hypothesis installed (verified via .venv/bin/ contents), and pynput is declared in deps, but I couldn't verify actual installation state.
+144-
+145:**Unknown**: Whether pyperclip happens to be installed in the .venv despite not being in pyproject.toml. If manually installed, many of the issues above would be latent (present but not manifesting). The pyproject.toml bug would still be real — it would just be hidden.
+146-
+147----
+--
+151-This assessment confirms and extends three prior findings:
+152-
+153:1. **RUNNABILITY_FINDINGS.md** (2026-01-23): Identified missing dependency management. Since then, pyproject.toml was created but pyperclip was left commented out.
+154-2. **phase3-runnability-findings.md** (2026-01-26): Incomplete due to no bash access. Same constraint hit here.
+155:3. **tome/RUNNABILITY-ASSESSMENT.md** (2026-05-02): Identified the same pyperclip blocker and pytest conflict. My assessment adds the handlers.py lazy import analysis, test_handlers.py monkeypatch failure mode, and the script-style test collection issue.
+156-
+157-New findings in this assessment:
+158:- handlers.py uses **lazy** pyperclip imports (good pattern, but tests still break)
+159:- test_handlers.py clipboard tests fail because `import pyperclip` runs before monkeypatch
+160-- test_integration.py and test_wire.py execute as **side effects** during pytest collection
+161:- tome.py's top-level `import pyperclip` is **redundant** — it's never used directly in that file
+
+tome/PHASE3-RUNNABILITY-STATIC-FINAL.md
+11-## BLOCKER
+12-
+13:### 1. pyperclip ImportError crashes startup
+14:- **File:** `tome.py` line 32: `import pyperclip`
+15:- **Problem:** Unconditional top-level import, but pyperclip is NOT in `pyproject.toml` dependencies (commented out as 'future' at line 17-18)
+16-- **Impact:** `python tome.py` crashes immediately with `ModuleNotFoundError`
+17:- **Fix:** Either add pyperclip to dependencies, or make the import conditional/lazy
+18-
+19-## Test Infrastructure Issues
+--
+92-- Imports from handlers.py, listener, mode modules
+93-- Well-structured fixtures (mock_store, mock_teller, mock_context)
+94:- Does NOT import pyperclip directly (handlers.py imports it lazily in clipboard_handler)
+95-
+96-### test_wire.py - SCRIPT ONLY ⚠️
+--
+118-- `handlers.py` (42KB, 1294 lines) is a monolith - all mode handlers in one file
+119-- `reference.py` (81KB) is the old monolith, still in repo but not imported
+120:- pyperclip dependency management is inconsistent
+121-- Integration test scripts aren't collected by pytest
+122-- Multiple pytest versions in .pyc cache (7.4.3, 8.3.3, 9.0.2) suggests version churn
+--
+127-- hypothesis installed (used for oracle/property tests)
+128-- pynput installed
+129:- pyperclip NOT installed
+130-
+131-## Recommended Fixes (Priority Order)
+132-
+133:1. **Fix pyperclip blocker** - Add to dependencies OR make import lazy/conditional
+134-2. **Reconcile pytest config** - Pick one of pytest.ini or pyproject.toml, delete the other
+135-3. **Convert integration scripts** - Add test_ functions or move to a scripts/ directory
+
+ARCHITECTURE_MAP.md
+24-**External Dependencies**:
+25-- `pynput` - keyboard listening (Linux/Mac/Win)
+26:- `pyperclip` - clipboard access
+27-- `pytest` + `hypothesis` - testing
+28-
+--
+326-dependencies = [
+327-    "pynput>=1.7.6",
+328:    "pyperclip>=1.8.2",
+329-]
+330-
+
+RUNNABILITY_ASSESSMENT_MAY2026.md
+12-
+13-The April assessment stated:
+14:> `python tome.py` will crash with `ImportError: No module named 'pyperclip'`
+15-
+16:**This is incorrect for the current environment.** `pyperclip-1.11.0` IS installed in the venv (confirmed via `ls .venv/lib/python3.12/site-packages/pyperclip*`), even though it remains commented out in `pyproject.toml`. The app will NOT crash on import. However, pyperclip is still an **undeclared dependency** — a packaging bug that would bite anyone doing a fresh `pip install`.
+17-
+18-## Environment State
+--
+25-| pytest | ✅ 9.0.2 | In dev dependencies |
+26-| hypothesis | ✅ 6.152.1 | In dev dependencies |
+27:| pyperclip | ⚠️ 1.11.0 | Installed but NOT declared |
+28-| evdev | ✅ 1.9.2 | Installed (pynput backend) |
+29-| python-xlib | ✅ 0.33 | Installed (pynput backend) |
+--
+65-## What's Broken
+66-
+67:### 1. Undeclared pyperclip Dependency (Packaging Bug)
+68-
+69:**Impact:** Fresh `pip install -e .` will NOT install pyperclip → `ImportError` on `import pyperclip` (tome.py line 32)  
+70:**Current state:** Works in existing venv because pyperclip was manually installed  
+71:**Fix:** Add `"pyperclip>=1.8.0"` to `dependencies` in pyproject.toml, or make the import lazy/conditional
+72-
+73-### 2. Conflicting pytest Configuration
+--
+112-## Recommended Fixes (Priority Order)
+113-
+114:1. **Add pyperclip to dependencies** — one-line fix, eliminates the only ImportError risk
+115-2. **Consolidate pytest config** — delete pytest.ini, update pyproject.toml testpaths to include `"."`
+116-3. **Add Makefile** — `make setup`, `make test`, `make run` targets
+--
+126-- Comparison with two prior assessments (Jan 2026, Apr 2026)
+127-
+128:**Limitation:** Could not execute any Python code due to bash approval gates. All runnability verdicts are inferred from static analysis and artifact evidence, not actual execution. The one new finding (pyperclip IS installed) was confirmed by directory listing, not by import.
+129-
+130-**What would change with execution access:**
+
+tome/RUNNABILITY-ASSESSMENT-2026-05-29.md
+9-## Executive Summary
+10-
+11:The RSP (Reusable Software Primitive) modules are well-structured and their unit tests would likely pass. The main application (`tome.py`) has a hard blocker: it imports `pyperclip` at module level, but pyperclip is not installed and not in `pyproject.toml` dependencies. This means `python tome.py` crashes immediately with `ImportError`.
+12-
+13----
+--
+33-### Integration Test (MEDIUM confidence: 6/10)
+34-
+35:`test_integration.py` exercises the full stack with text teller and mocked `os._exit`. It doesn't import `tome.py` directly (imports individual RSPs + handlers), so it avoids the pyperclip blocker. The `from listener import ...` line imports pynput at module level — this may fail in headless environments.
+36-
+37-### RSP Architecture
+--
+47-## What Would Break
+48-
+49:### 1. BLOCKER: `import pyperclip` in tome.py (line 32)
+50-
+51-```python
+52-# External
+53:import pyperclip  # <-- CRASHES: not installed, not in pyproject.toml
+54-```
+55-
+56-**Impact**: `python tome.py` fails immediately with `ImportError`.
+57:**Fix**: Either install pyperclip and add to dependencies, or make the import conditional.
+58-
+59:Note: pyperclip is explicitly commented out in pyproject.toml:
+60-```toml
+61:# Future: pyperclip will be needed when clipboard functionality is added
+62:# clipboard = ["pyperclip>=1.8.0"]
+63-```
+64-
+--
+116-| Property tests | ✅ Likely PASS | Hypothesis data cached |
+117-| Integration test | ⚠️ Conditional | Depends on pynput import in headless env |
+118:| `python tome.py` | ❌ FAIL | `import pyperclip` — missing dependency |
+119:| App with pyperclip fixed | ⚠️ Conditional | Needs display server for pynput, espeak for TTS |
+120-
+121:**Bottom line**: The RSP primitives are well-engineered and testable. The main app entry point has a one-line blocker (`import pyperclip`) that's trivially fixable. The architecture is sound; the wiring layer needs a dependency fix.
+
+tome/PHASE3-RUNNABILITY-EXECUTION-BLOCKED.md
+46-
+47-3. **Dependency mismatch (structurally real).** `pyproject.toml` declares only
+48:   `pynput`; `pyperclip` is commented out as "future." Cartographer Phase 2
+49:   reported pyperclip is actually imported. I could not run an import to confirm
+50:   at runtime (blocked), but if any module imports pyperclip, fresh installs from
+51-   pyproject alone will break.
+52-
+--
+58-
+59-- Whether core imports actually succeed
+60:- Whether pyperclip is importable in the venv
+61-- Whether the test suite passes
+62-- Whether tome.py runs
+--
+79-   match reality (or add the missing setup_tome.sh / run_tests.sh), resolve the
+80-   pytest config split-brain (pick one config, delete the other), and declare
+81:   pyperclip in dependencies if it is imported.
+82-
+83-Then **delete the ~40 duplicate assessment files** — they are noise that actively
+
+tome/PHASE4-AGENT-ITERABILITY-VERDICT.md
+86-
+87-Current CLAUDE.md tells agents:
+88:- Run: `python tome.py` (which crashes due to pyperclip)
+89-- Init DB: `sqlite3 lore.db < CREATE.sql`
+90-- Code style guidelines
+--
+95-- The RSP architecture
+96-- `docs/agentic-testing.md` exists
+97:- The pyperclip blocker
+98-- Which modules are safe to import
+99-
+--
+135-- Link to `docs/agentic-testing.md`
+136-- Brief RSP architecture description (5 modules, what each does)
+137:- Known issues (pyperclip blocker)
+138-- "After making changes, run `pytest` to verify"
+139-
+
+tome/PHASE3-RUNNABILITY-VERDICT.md
+9-## Executive Summary
+10-
+11:`python tome.py` will crash immediately with `ImportError: No module named 'pyperclip'`. Even if that's fixed, the app requires a display server (X11/Wayland) for pynput keyboard listening, and espeak-ng installed for default TTS. The individual RSP modules (store, mark, mode, teller) are well-isolated and importable independently.
+12-
+13----
+--
+43-- The KeyEvent/EventType/SpecialKey enums are clean and well-validated.
+44-
+45:### 6. handlers.py — ⚠️ Imports work, but pyperclip calls will fail
+46-- Top-level imports are only `listener` and `mode` (internal). These work.
+47:- `pyperclip` is imported inside functions (lazy imports at lines 204, 470, 635, 713, 1085).
+48-- This means handlers.py *imports* fine, but clipboard/list/read/browse handlers crash when invoked.
+49-
+50-### 7. test_integration.py — ⚠️ Partially runnable
+51:- Does NOT import `tome.py` (avoids the pyperclip crash).
+52-- Imports RSP modules directly: store, teller, mark, mode, listener, handlers.
+53-- Will fail if pynput can't load (display server requirement).
+54:- Will fail at any test step that triggers a pyperclip call in handlers.
+55-- Uses `get_handler("text")` — good, avoids espeak dependency.
+56-
+--
+59-## What Breaks
+60-
+61:### CRITICAL: pyperclip ImportError crashes app on launch
+62-
+63:**Location:** `tome.py` line 32: `import pyperclip`
+64-
+65:**Problem:** pyperclip is NOT in `pyproject.toml` dependencies. It's commented out:
+66-```toml
+67:# Future: pyperclip will be needed when clipboard functionality is added
+68:# clipboard = ["pyperclip>=1.8.0"]
+69-```
+70-
+71-**Impact:** `python tome.py` immediately crashes with:
+72-```
+73:ModuleNotFoundError: No module named 'pyperclip'
+74-```
+75-
+76:**Additionally:** handlers.py has 17 pyperclip call sites across 5 handler functions (clipboard_handler, list_handler, read_handler, browse_handler, _handle_all_mode_action). These use lazy `import pyperclip` inside functions, so they don't crash on import but will crash when any clipboard operation is attempted.
+77-
+78-**Fix:** Either:
+79:1. Add `pyperclip>=1.8.0` to dependencies, or
+80-2. Make the import conditional with a stub fallback
+81-
+--
+135-| teller/ | ✅ | ✅* | *espeak needs binary |
+136-| listener/ | ⚠️ | ⚠️ | Needs display server |
+137:| handlers.py | ✅ | ❌ | pyperclip crashes on use |
+138:| tome.py | ❌ | ❌ | pyperclip crashes on import |
+139-| Unit tests | ✅ | ✅ | Per-module tests pass |
+140:| Integration | ⚠️ | ⚠️ | Partial — display + pyperclip |
+141-
+142----
+--
+145-
+146-**High confidence** in these findings. Static analysis clearly shows:
+147:1. The unconditional `import pyperclip` on line 32 of tome.py
+148:2. pyperclip commented out of pyproject.toml dependencies
+149:3. 17 pyperclip call sites in handlers.py
+150-4. pynput's documented requirement for display server
+151-
+152:The only uncertainty is whether pyperclip might be installed in the venv despite not being in pyproject.toml (possible if manually pip-installed). The `.venv` directory exists but I couldn't execute commands to check.
+
+tome/PHASE3-RUNNABILITY-STATIC-ASSESSMENT.md
+11-## Verdict: CONDITIONAL PASS
+12-
+13:The project will run correctly in its *current* venv (all deps are installed). A fresh `pip install` from pyproject.toml would fail on `import pyperclip` in tome.py.
+14-
+15----
+--
+17-## Findings
+18-
+19:### 1. Shadow Dependency: pyperclip (CRITICAL)
+20-
+21-**Impact**: Fresh install fails immediately on `python tome.py`
+22-
+23:- `pyperclip` is imported in 4 files: `tome.py`, `handlers.py`, `reference.py`, `test_handlers.py`
+24-- It is NOT declared in `pyproject.toml` dependencies (commented out as "Future")
+25:- It IS installed in the current `.venv` (pyperclip-1.11.0)
+26-- This means the project works locally but fails on any fresh clone + install
+27-
+28:**Fix**: Add `"pyperclip>=1.8.0"` to the `[project.dependencies]` list in pyproject.toml.
+29-
+30-### 2. Test Configuration Conflict (MODERATE)
+--
+91-## Recommendations (Priority Order)
+92-
+93:1. **Add pyperclip to dependencies** — one-line fix, eliminates fresh-install failure
+94-2. **Resolve pytest.ini vs pyproject.toml** — pick one source of truth
+95-3. **Document espeak requirement** — or change default teller mode
+
+tome/PHASE3-RUNNABILITY-COMPREHENSIVE.md
+9-## Executive Summary
+10-
+11:The tome project has **one hard blocker** preventing `python tome.py` from running: an unconditional `import pyperclip` on line 32 of `tome.py`, where pyperclip is not installed (commented out in pyproject.toml). The five RSP modules (store, teller, mark, mode, listener) are well-isolated and their unit tests should pass independently. Integration tests (test_wire.py, test_integration.py) avoid importing tome.py directly, so they should work.
+12-
+13----
+14-
+15:## 1. BLOCKER: pyperclip ImportError
+16-
+17-**File:** `tome.py`, line 32
+18:**Issue:** `import pyperclip` is unconditional, but pyperclip is NOT installed
+19-**Evidence:** `pyproject.toml` line 17-18 has it commented out:
+20-```python
+21:# Future: pyperclip will be needed when clipboard functionality is added
+22:# clipboard = ["pyperclip>=1.8.0"]
+23-```
+24:**Impact:** `python tome.py` fails immediately with `ImportError: No module named 'pyperclip'`
+25:**Fix:** Either install pyperclip (`pip install pyperclip`) or make the import conditional/lazy
+26-
+27----
+--
+84-### test_wire.py (smoke test)
+85-- **Imports:** store, teller, mark, mode, listener, handlers
+86:- **Does NOT import:** tome.py or pyperclip
+87-- **Purpose:** Verifies RSP wiring works (create each, connect, simulate keypresses)
+88-- **Prediction:** ✅ Should work
+--
+90-### test_integration.py (user session simulation)
+91-- **Imports:** store, teller, mark, mode, listener, handlers
+92:- **Does NOT import:** tome.py or pyperclip
+93-- **Mocks os._exit:** to prevent test process from dying
+94-- **Purpose:** Full user session simulation with keypresses
+95:- **Prediction:** ✅ Should work (if pyperclip not transitively imported)
+96-
+97-### test_handlers.py (45.8KB)
+98-- **Imports:** handlers.py which imports listener and mode
+99:- **handlers.py does NOT import:** pyperclip (only os, re, webbrowser, listener, mode)
+100-- **Prediction:** ✅ Should mostly work
+101-
+--
+111-
+112-### CLAUDE.md is outdated:
+113:- Says "Run application: `python tome.py`" - this will fail due to pyperclip
+114-- Doesn't mention RSP architecture or the five modules
+115-- Doesn't mention `--text` flag for non-TTS testing
+--
+122-|-------------|--------|--------|
+123-| Python 3.10+ | Required | `str \| None` syntax used throughout |
+124:| pyperclip | **NOT INSTALLED** | **tome.py won't start** |
+125-| pynput | In dependencies | Keyboard capture |
+126-| espeak binary | System package | TTS output (use `--text` to bypass) |
+--
+141-
+142-**Weaknesses:**
+143:- pyperclip import blocks the entire app (should be lazy/conditional)
+144-- Duplicate pytest config (pytest.ini vs pyproject.toml)
+145-- Documentation significantly outdated
+--
+151-## 8. Recommended Actions (Priority Order)
+152-
+153:1. **Fix pyperclip import** - Make it conditional or add to dependencies
+154-2. **Consolidate pytest config** - Remove one of pytest.ini / pyproject.toml
+155-3. **Update README.md** - Remove references to non-existent files
+
+tome/PHASE4-AGENT-ITERABILITY-FINAL-VERDICT.md
+22-- **Hypothesis**: Property-based testing catches edge cases agents would miss
+23-
+24:### 2. Tests Bypass the pyperclip Crash
+25:- `tome.py` imports `pyperclip` (not installed), making `import tome` crash
+26-- But ALL test files import from primitives directly (store, teller, mark, mode, listener, handlers)
+27:- `handlers.py` does NOT import pyperclip — only `tome.py` does
+28-- This means the entire test suite should run fine despite the broken main entry point
+29-
+
+tome/RUNNABILITY-FINDING-2026-05-28.md
+7-## Critical Blocker
+8-
+9:**tome.py imports `pyperclip` at module level, but pyperclip is NOT in dependencies.**
+10-
+11-```python
+12-# tome.py line ~17
+13:import pyperclip
+14-```
+15-
+16-```toml
+17-# pyproject.toml - commented out as future
+18:# Future: pyperclip will be needed when clipboard functionality is added
+19:# clipboard = ["pyperclip>=1.8.0"]
+20-```
+21-
+22:Running `python tome.py` or `uv run tome.py` will crash immediately with `ImportError: No module named 'pyperclip'`.
+23-
+24:**Fix:** Either add pyperclip to dependencies, or make the import conditional/lazy.
+25-
+26-## RSP Module Status (All Good)
+--
+68-| teller/test_teller_gremlin.py | ✅ Yes | Internal deps only |
+69-| teller/test_teller_oracle.py | ✅ Yes | Internal deps only |
+70:| test_handlers.py | ✅ Yes | Does NOT import pyperclip |
+71:| test_integration.py | ✅ Yes | Does NOT import pyperclip |
+72:| test_wire.py | ✅ Yes | Does NOT import pyperclip |
+73-
+74:**Key insight:** The root-level integration tests import from RSP modules and handlers directly—they do NOT import tome.py or pyperclip. So the test suite should run cleanly.
+75-
+76-## Runtime Dependencies
+--
+79-|------------|-------------|---------------------|--------|
+80-| pynput | listener.py | ✅ Yes | Installed |
+81:| pyperclip | tome.py | ❌ No (commented out) | **MISSING** |
+82-| espeak | teller/handlers/espeak.py | N/A (system dep) | Needed for default TTS |
+83-| sqlite3 | store.py | N/A (stdlib) | Always available |
+--
+94-## Summary
+95-
+96:1. **tome.py is broken** due to unconditional `import pyperclip` with no pyperclip in deps
+97-2. **All RSP modules import cleanly** — well-isolated with minimal dependencies
+98:3. **Test suite should pass** — tests don't touch the pyperclip import path
+99-4. **pytest.ini overrides pyproject.toml** test discovery — may be intentional or not
+100-5. **espeak is a runtime dep** for the default teller handler, but text/debug modes work without it
+
+tome/PHASE3-RUNNABILITY-LIVE.md
+31-1. **X11 required** - `PynputListener` uses `suppress=True` which requires X11 display or root access
+32-2. **espeak required** - Default teller mode is espeak (unless `--text` flag used)
+33:3. **pyperclip import** - Imported unconditionally at module level in tome.py, but NOT in pyproject.toml dependencies
+34-
+35-### Fresh Install from pyproject.toml
+36:- `pyperclip` is imported in tome.py but only listed as a comment in pyproject.toml ("Future: pyperclip will be needed")
+37:- Actually already installed in venv (pyperclip-1.11.0), so the venv is ahead of declared deps
+38-
+39-### pytest Configuration Conflict
+--
+56-| # | Issue | Severity | Category |
+57-|---|-------|----------|----------|
+58:| 1 | `pyperclip` imported but not in pyproject.toml dependencies | Medium | Packaging |
+59-| 2 | pytest.ini vs pyproject.toml testpaths conflict | Low | Testing |
+60-| 3 | test_integration.py executes on import (not pytest-compatible) | Medium | Testing |
+--
+72-## Recommendations
+73-
+74:1. Add `pyperclip>=1.8.0` to dependencies (it's already used)
+75-2. Remove or reconcile pytest.ini with pyproject.toml (remove pytest.ini, use pyproject.toml exclusively)
+76-3. Convert test_integration.py to proper pytest format with `test_*` functions
+
+tome/PHASE3-YIELD-RESULT.md
+16-1. **README lies.** It instructs `./setup_tome.sh` and `./run_tests.sh` — both CONFIRMED absent (ls exit=2, 'No such file or directory').
+17-2. **Stale README file list.** README references `utilities.py` and `test_tome.py`; neither exists in the tree. The real entry point is `tome.py` (5974 bytes), which imports the modular RSP structure (store, teller, mark, mode, listener).
+18:3. **Dependency mismatch.** `pyproject.toml` declares only `pynput`; `pyperclip` is commented out as 'future.' Prior agent (cartographer) reported pyperclip is actually imported somewhere. If true, fresh installs break. Could not confirm the import site at runtime (execution blocked).
+19-4. **Pytest split-brain CONFIRMED.** `pytest.ini` sets `testpaths=.` while `pyproject.toml [tool.pytest.ini_options]` sets `testpaths=[store, teller, mark, mode, listener]`. Deleting pytest.ini silently drops root-level tests (test_handlers.py, test_integration.py, test_wire.py).
+20-
+
+tome/ARCHITECTURAL-ASSESSMENT-2026-05-22.md
+38-- handlers.py (42KB, 1294 lines) is a monolithic file at root level — not an RSP, not modularized
+39-- reference.py (81KB) at root — purpose unclear, not imported by anything visible
+40:- `import pyperclip` at module level in tome.py — fails if not installed, but it's not declared in pyproject.toml
+41-- `os._exit(0)` used for quit (in both tome.py and handlers.py) — kills threads but skips cleanup
+42-
+--
+54-| `from mode import Mode, ModeContext` | ✅ Likely OK | stdlib only (logging, dataclasses, typing) |
+55-| `from listener import PynputListener` | ⚠️ Depends | Requires pynput — installed in .venv ✅ |
+56:| `import pyperclip` | ⚠️ Undeclared | Installed in .venv ✅ but NOT in pyproject.toml ❌ |
+57-
+58-### Will It Run?
+--
+69-
+70-# But tome.py also needs:
+71:import pyperclip  # NOT DECLARED — commented as "Future" in pyproject.toml
+72-```
+73-
+74:This means `pip install .` or `uv sync` won't install pyperclip, and `import pyperclip` in tome.py will fail on a fresh install. The dependency IS installed in the current .venv, so it works locally.
+75-
+76-### Config Conflict: pytest.ini vs pyproject.toml
+--
+139-1. **Fix CLAUDE.md** to describe actual RSP architecture, not the old global-state approach
+140-2. **Fix README.md** to remove nonexistent file references and describe the RSP module structure
+141:3. **Add pyperclip to pyproject.toml dependencies** or remove the import from tome.py
+142-4. **Resolve pytest.ini vs pyproject.toml conflict** — pick one source of truth
+143-5. **Consider splitting handlers.py** into per-mode handler files (or at least document its structure)
+
+tome/RUNNABILITY-STATIC-ANALYSIS-CURRENT.md
+3-## Executive Summary
+4-
+5:**Verdict: Will not start.** The application has a blocking import error (`pyperclip`) at module level that prevents startup. The test suite is likely runnable for the RSP modules but has a config conflict between `pytest.ini` and `pyproject.toml`. The underlying architecture is clean and well-structured.
+6-
+7-## Critical Issues
+8-
+9:### 1. pyperclip ImportError (BLOCKER)
+10-- **File**: `tome.py`, line 32
+11:- **Problem**: `import pyperclip` at module level, but pyperclip is NOT in `pyproject.toml` dependencies
+12:- **Evidence**: pyproject.toml line 17 explicitly comments it out: `# Future: pyperclip will be needed when clipboard functionality is added`
+13:- **Impact**: `python tome.py` will crash immediately with `ModuleNotFoundError: No module named 'pyperclip'`
+14:- **Fix**: Either add `pyperclip>=1.8.0` to dependencies, or gate the import behind a try/except or move it to the clipboard handler
+15-
+16-### 2. pytest.ini vs pyproject.toml testpaths conflict
+--
+18-- **pyproject.toml**: `testpaths = ["store", "teller", "mark", "mode", "listener"]` (only RSP dirs)
+19-- **Impact**: pytest.ini takes precedence (it's loaded first), so `pytest` runs ALL test files including root-level `test_handlers.py`, `test_integration.py`, `test_wire.py`. pyproject.toml's testpaths are ignored.
+20:- **Risk**: Root-level tests may import `tome.py` which triggers the pyperclip ImportError, potentially cascading test failures
+21-- **Fix**: Remove pytest.ini or align the two configs
+22-
+--
+34-- **espeak**: Installed at `/usr/bin/espeak`
+35-- **pynput**: Listed as dependency, likely installed (couldn't verify - bash approval pending)
+36:- **pyperclip**: Almost certainly NOT installed (not in any dependency list)
+37-- **uv.lock**: Present (35KB), suggesting uv was used for dependency management
+38-
+--
+77-- pytest markers defined: db, ui, keyboard, clipboard, integration
+78-- Root-level test files: `test_handlers.py`, `test_integration.py`, `test_wire.py`
+79:- Could not run tests (bash approval pending) but static analysis suggests RSP-level tests should pass if pyperclip issue doesn't cascade
+80-
+81-## Recommendations (Priority Order)
+82-
+83:1. **Fix pyperclip import** - Either add to deps or lazy-import it. This is the only thing preventing startup.
+84-2. **Resolve pytest config conflict** - Delete pytest.ini and let pyproject.toml be the single source of truth.
+85-3. **Update README** - Reflect actual project structure, correct Python version, remove references to nonexistent files.
+--
+90-
+91-- Whether tests actually pass (bash commands for running Python were awaiting approval)
+92:- Whether pyperclip is installed in the venv despite not being in pyproject.toml
+93-- Whether pynput is installed and functional
+94-- Runtime behavior of the application
+
+tome/PHASE4-FEEDBACK-LOOPS-INDEPENDENT.md
+78-No ruff, flake8, mypy, or any static analysis tool. Agent can introduce style drift or type errors with no automated signal.
+79-
+80:### 5. pyperclip Dependency Gap (LOW IMPACT)
+81-
+82:`tome.py` imports pyperclip unconditionally, and `handlers.py` uses it in 5+ functions. But it's commented out in pyproject.toml as "future." It's probably installed in .venv, but fresh installs would break.
+83-
+84----
+--
+155-
+156-1. **Explicit per-module signal quality ratings** — not just "exists" but "how good"
+157:2. **The pyperclip dependency gap** — present but undeclared
+158-3. **Confirmation of the core insight**: the problem is entirely at the project-level tooling layer, not the code or test architecture
+159-
+
+tome/PHASE4-AGENT-ITERABILITY-FINAL-ASSESSMENT.md
+24-- Manual wiring smoke test that exercises the full RSP integration
+25-- Good template for agents to understand component composition
+26:- BUT: calls pyperclip on double-tap (line 83), will fail headless without mocking
+27-
+28-### 4. CLAUDE.md (WEAK)
+--
+62-- `pyproject.toml` sets `testpaths = ["store", "teller", "mark", "mode", "listener"]`
+63-- pytest.ini takes precedence, so bare `pytest` runs root-level integration tests
+64:- Root-level tests (`test_handlers.py`, `test_integration.py`, `test_wire.py`) import pyperclip and fail headless
+65-- **Result:** An agent running `pytest` will see failures and not know if they're pre-existing or caused by their changes
+66-
+67:### Critical: Undeclared pyperclip Dependency
+68:- `tome.py` and `handlers.py` import pyperclip at module level
+69:- pyperclip is commented out in pyproject.toml: `# clipboard = ["pyperclip>=1.8.0"]`
+70:- A fresh `pip install -e .` won't install pyperclip, causing import failures
+71-- Root-level tests that import handlers will crash
+72-
+--
+116-5. **Clean up tome/ directory** — Remove or archive the 36 stale assessment files.
+117-
+118:6. **Fix pyperclip dependency** — Either add it to dependencies or gate the import behind a try/except.
+119-
+120-## Summary
+
+tome/PHASE4-FINAL-VERDICT.md
+29-`test_mode_oracle.py`, `test_store_oracle.py`, and `test_teller_oracle.py` contain tests **designed to fail** — they expose real bugs documented in docstrings. But they lack `@pytest.mark.xfail` markers. Result: the suite is permanently red. An agent runs pytest, sees failures, wastes cycles trying to "fix" intentional failures. It cannot distinguish regressions from expected failures.
+30-
+31:### 3. pyperclip Import Crash (HIGH)
+32-
+33:`tome.py` line 32: `import pyperclip` — unconditional import of an undeclared dependency. The app crashes on startup with `ImportError`. pyproject.toml has a comment about adding it later but never does.
+34-
+35-## Feedback Loops: What Doesn't Exist
+--
+65-| Delete pytest.ini, consolidate into pyproject.toml | 5 min | Eliminates config conflict |
+66-| Add `@pytest.mark.xfail(strict=True)` to oracle tests | 15 min | Green baseline possible |
+67:| Make pyperclip import conditional | 5 min | App can start |
+68-| Add Makefile with test/lint/check targets | 15 min | Agent has a front door |
+69-| Update CLAUDE.md with test commands | 5 min | Agent knows what to run |
+--
+85-## Confidence Level
+86-
+87:**High confidence** on all findings. Based on reading every test file, every config file, both integration scripts, all documentation, and all 15 previous agent findings. The only gap is I couldn't actually execute pytest (bash commands required approval for redirects), but the static analysis of config files and test structure is definitive — the pytest.ini/pyproject.toml conflict is a fact, the missing xfail markers are a fact, and the pyperclip import is a fact.
+88-
+89----
+
+tome/synthesis-20260702-initiatives.md
+31----
+32-
+33:### Initiative 1: Fix Pyperclip Dependency
+34-**Time:** 10 minutes | **Priority:** CRITICAL | **Blocks:** App startup
+35-
+36:`tome.py:32` imports pyperclip unconditionally but it's commented out in pyproject.toml. Fresh install crashes.
+37-
+38-**Fix:** Uncomment in pyproject.toml:
+--
+40-dependencies = [
+41-    "pynput>=1.7.0",
+42:    "pyperclip>=1.8.0",
+43-]
+44-```
+
+tome/RUNNABILITY-ASSESSMENT.md
+34-## Issues Found
+35-
+36:### 1. Missing Dependency: `pyperclip` (BLOCKER for tome.py)
+37-
+38-**File:** `tome.py` line ~22  
+--
+40-
+41-```python
+42:import pyperclip  # NOT in pyproject.toml dependencies
+43-```
+44-
+45-`pyproject.toml` has a comment acknowledging this:
+46-```toml
+47:# Future: pyperclip will be needed when clipboard functionality is added
+48:# clipboard = ["pyperclip>=1.8.0"]
+49-```
+50-
+51:The dependency is commented out but `tome.py` imports it unconditionally. This means `tome.py` cannot be imported or run without manually installing pyperclip.
+52-
+53-**Fix:** Either:
+54:- Add `pyperclip>=1.8.0` to `[project.dependencies]`
+55-- Or make the import conditional/lazy in `tome.py`
+56-
+--
+124-| listener/ | ⚠️ Needs pynput | ✅ Likely (MockListener) | N/A (library) |
+125-| teller/ | ✅ Yes | ✅ Likely (text/debug handlers) | N/A (library) |
+126:| tome.py | ❌ Missing pyperclip | ⚠️ Not directly | ❌ Needs pyperclip + espeak + terminal |
+127-
+128----
+--
+130-## Recommended Fixes (Priority Order)
+131-
+132:1. **Add pyperclip to dependencies** or make it a lazy/conditional import in tome.py
+133-2. **Remove pytest.ini** and keep pyproject.toml as the single pytest config source
+134-3. **Update README** to reflect current RSP architecture, correct Python version, and current file structure
+
+tome/PHASE4-AGENT-ITERABILITY-FINAL.md
+31-- Tests don't require espeak (text handler)
+32-- Tests don't require pynput/X11 (MockListener)
+33:- Tests don't require clipboard (pyperclip commented out in pyproject.toml)
+34-- Each RSP module is independently testable
+35-
+
+tome/PHASE3-RUNNABILITY-DEFINITIVE-FINAL.md
+11-The tome project has **three distinct runnability issues** that interact:
+12-
+13:1. **Undeclared dependency**: pyperclip is used at module level in `tome.py` but commented out in `pyproject.toml` — a fresh install breaks immediately
+14-2. **Test config conflict**: `pytest.ini` (testpaths=`.`) overrides `pyproject.toml` (testpaths=`['store','teller','mark','mode','listener']`), pulling in integration tests that fail headless
+15:3. **Headless incompatibility**: Both pyperclip and pynput require display/clipboard backends unavailable in CI/headless environments
+16-
+17----
+18-
+19:## Finding 1: Undeclared pyperclip Dependency
+20-
+21-**Severity: CRITICAL — breaks fresh install**
+--
+23-`tome.py` line 32:
+24-```python
+25:import pyperclip  # module-level, always imported
+26-```
+27-
+--
+31-    "pynput>=1.7.0",
+32-]
+33:# Future: pyperclip will be needed when clipboard functionality is added
+34:# clipboard = ["pyperclip>=1.8.0"]
+35-```
+36-
+37:pyperclip is **commented out** as a future dependency. A fresh `pip install -e .` will NOT install pyperclip, causing an immediate `ImportError` when importing `tome`.
+38-
+39:pyperclip IS installed in the current venv (1.11.0) — presumably via manual `pip install`. This masks the bug for anyone working in the existing venv.
+40-
+41:**handlers.py** does it RIGHT — imports pyperclip at function level (lazy imports at lines 204, 470, 635, 713, 1085). This means `import handlers` succeeds even without pyperclip; only clipboard operations fail at runtime.
+42-
+43-**Recommendation:** Either:
+44:- Add `pyperclip>=1.8.0` to `dependencies` in pyproject.toml, OR
+45:- Move `import pyperclip` in `tome.py` to function level (matching handlers.py's pattern)
+46-
+47-## Finding 2: pytest.ini vs pyproject.toml Config Conflict
+--
+77-**Severity: MEDIUM — affects CI/automated testing**
+78-
+79:### pyperclip in headless:
+80:- `import pyperclip` succeeds (no backend check at import time)
+81:- `pyperclip.copy()` / `pyperclip.paste()` raises `PyperclipException` if no clipboard backend (xclip, xsel, pbcopy) is available
+82-- Affects any test that calls clipboard operations without mocking
+83-
+--
+89-### Impact on test files:
+90-
+91:| Test File | pyperclip Usage | Headless? | Verdict |
+92-|---|---|---|---|
+93-| `store/test_store.py` | None | ✅ Safe | PASS |
+--
+104-| `listener/test_listener.py` | None | ✅ Safe | PASS |
+105-| `test_handlers.py` | Mocked via monkeypatch | ✅ Safe | LIKELY PASS |
+106:| `test_integration.py` | Unmocked pyperclip.copy() at double-tap | ❌ Fails | FAIL headless |
+107:| `test_wire.py` | Unmocked pyperclip.copy() at Step 15 | ❌ Fails | FAIL headless |
+108-
+109-## Finding 4: Architectural Observations
+110-
+111-### Good patterns:
+112:- **handlers.py**: Function-level pyperclip imports (lazy loading) — clipboard only imported when needed
+113:- **test_handlers.py**: Every test that touches clipboard properly monkeypatches pyperclip (22 occurrences)
+114-- **RSP isolation**: Each RSP (store, teller, mark, mode, listener) is self-contained with clean `__init__.py` exports
+115-- **listener encapsulation**: pynput is ONLY imported in `listener/` — all other code uses the KeyEvent abstraction
+116-
+117-### Bad patterns:
+118:- **tome.py**: Module-level `import pyperclip` — contradicts handlers.py's lazy pattern
+119-- **pytest.ini vs pyproject.toml**: Conflicting test discovery config
+120:- **pyproject.toml**: pyperclip commented out despite being a runtime dependency
+121:- **test_integration.py / test_wire.py**: No pyperclip mocking — will fail headless
+122-
+123----
+--
+126-
+127-### Can `tome.py` run?
+128:- **With current venv**: YES (pyperclip manually installed)
+129:- **Fresh `pip install -e .`**: NO — ImportError on `import pyperclip`
+130-- **In headless**: PARTIAL — imports succeed, but clipboard/keyboard operations fail at runtime
+131-
+132-### Can the test suite run?
+133-- **RSP unit tests (subdirectories)**: YES — fully isolated, no external dependencies
+134:- **test_handlers.py**: LIKELY YES — properly mocks pyperclip
+135:- **test_integration.py**: NO in headless — unmocked pyperclip.copy()
+136:- **test_wire.py**: NO in headless — unmocked pyperclip.copy() at Step 15
+137-- **With `pytest.ini` present**: ALL tests discovered (including failing integration tests)
+138-- **Without `pytest.ini`**: Only RSP unit tests discovered (pyproject.toml's restricted testpaths)
+
+tome/PHASE4-AGENT-ITERABILITY-COMPREHENSIVE.md
+108-- Only accurate parts: indentation (4 spaces), snake_case naming, SQLite usage
+109-
+110:### 3.2 Missing pyperclip Dependency (CRITICAL)
+111:- `tome.py` line 32: `import pyperclip` (top-level, unconditional)
+112:- `pyproject.toml`: pyperclip is commented out, not in dependencies
+113:- `.venv` likely lacks pyperclip
+114-- **Impact:** `import tome` or `from tome import App` crashes immediately
+115-- Note: `test_integration.py` works by importing primitives directly, bypassing tome.py
+--
+179-
+180-### P0 — Fix Before Agent Iteration
+181:1. **Fix pyperclip dependency** — Either add to dependencies or make import conditional
+182-2. **Delete or rewrite ARCHITECTURE.md** — It describes a different system entirely
+183-3. **Update CLAUDE.md** — Replace stale patterns with current architecture
+--
+206-**The good:** Excellent test infrastructure. An agent that discovers `test_integration.py` can use it as a pattern to understand the full system. The 5-primitive architecture is clean and each package is independently testable. MockListener and text teller enable headless CI/testing.
+207-
+208:**The bad:** An agent's first 15-30 minutes will be wasted on misleading documentation (ARCHITECTURE.md, CLAUDE.md). The pyperclip crash blocks importing the main app module. The missing lint/type-check means agents get no feedback on code quality — only runtime failures.
+209-
+210-**The ugly:** 35+ stale assessment files in `tome/` from prior agent runs create significant noise and confusion about what's canonical.
+
+tome/PHASE4-AGENT-ITERABILITY-FINDING-FINAL.md
+8-## Executive Summary
+9-
+10:An agent CAN iterate effectively on individual RSP components thanks to comprehensive unit tests and explicit agentic testing documentation. However, the project lacks build tooling (no Makefile), linting, and has conflicting test configs that create friction. End-to-end iteration is broken due to the missing pyperclip dependency.
+11-
+12-## Feedback Loops That Exist
+--
+76-- No git hooks for automated checking
+77-
+78:### 6. Missing pyperclip Dependency ❌
+79:- `tome.py` line 32: `import pyperclip` at module level
+80:- `pyperclip` not in `pyproject.toml` dependencies (commented out as "Future")
+81-- App crashes on startup → end-to-end testing is impossible
+82-- Blocks any agent from testing the full application flow
+--
+96-
+97-### What an Agent CANNOT Do Well:
+98:1. **Run the full app** — pyperclip crash blocks this entirely
+99-2. **Verify code quality** — No linter means silent degradation
+100-3. **Know which tests to trust** — Conflicting pytest configs create ambiguity
+--
+112-2. **Add ruff** for linting + formatting (fast, minimal config)
+113-3. **Fix pytest config** — remove pytest.ini or align it with pyproject.toml
+114:4. **Add pyperclip** to dependencies (or guard the import)
+115-5. **Clean up stale assessment files** — archive or delete the 30+ markdown files
+116-6. **Add test command to CLAUDE.md** — Tell agents exactly how to run tests
+
+tome/PHASE3-RUNNABILITY-DEFINITIVE.md
+9-**Verdict: The main application will NOT run from a clean install.** Module tests should mostly pass. The codebase has one hard blocker, one config conflict, and several environment-dependent issues.
+10-
+11:## Finding 1: HARD BLOCKER — pyperclip ImportError
+12-
+13-**Severity:** Critical — prevents application startup
+14-
+15:- `tome.py` line 32: `import pyperclip` — unconditional top-level import
+16:- `pyproject.toml` line 17: pyperclip is commented out as `# Future`
+17:- A clean `pip install .` or `pip install -e .[dev]` does NOT install pyperclip
+18:- Running `python tome.py` → immediate `ImportError: No module named 'pyperclip'`
+19-
+20-**Impact:** The main application cannot start at all from a clean install.
+21-
+22:**Workaround:** `pip install pyperclip` manually, but this shouldn't be required.
+23-
+24-**Fix:** Either:
+25:1. Add `pyperclip` to `dependencies` in pyproject.toml, or
+26-2. Move the import inside `clipboard_handler()` in handlers.py (lazy import), or
+27-3. Remove the top-level import from tome.py and use conditional import where needed
+28-
+29:**Note:** `handlers.py` does NOT import pyperclip at the top level (its imports are: os, re, webbrowser, listener, mode). The pyperclip usage is likely inside `clipboard_handler()`. This means tests that import handlers directly (test_handlers.py, test_integration.py, test_wire.py) bypass this blocker.
+30-
+31-## Finding 2: pytest Configuration Conflict
+--
+62-**Impact on tests:** Minimal. Tests use `MockListener` and import `KeyEvent`/`EventType`/`SpecialKey` which don't require X11. The `from pynput import keyboard` at line 14 runs on any import of the listener module, but pynput itself can usually be imported without X11 — it's the `keyboard.Listener()` call that fails.
+63-
+64:**Impact on app:** `python tome.py` would fail on `self.listener.start(self._on_key)` in headless environments, even if the pyperclip issue is fixed.
+65-
+66-## Finding 4: Module Tests Should Pass
+--
+127-| Scenario | Will it work? | Blocker |
+128-|----------|:---:|---|
+129:| `pip install .` then `python tome.py` | ❌ | pyperclip not in dependencies |
+130:| `pip install pyperclip` then `python tome.py` (desktop) | ✅* | *pynput needs X11 |
+131:| `pip install pyperclip` then `python tome.py` (headless) | ❌ | pynput needs X11 |
+132:| `python tome.py --text` (desktop, pyperclip installed) | ✅ | — |
+133-| `pytest` (module tests only, pyproject.toml paths) | ✅ | pytest.ini overrides paths |
+134-| `pytest store/ teller/ mark/ mode/ listener/` (explicit) | ✅ | — |
+--
+139-## Recommended Fixes (Priority Order)
+140-
+141:1. **Add pyperclip to dependencies** or make the import conditional — Critical
+142-2. **Delete pytest.ini** or align it with pyproject.toml — Medium
+143-3. **Add `if __name__ == '__main__'` guards** to test_integration.py and test_wire.py — Low

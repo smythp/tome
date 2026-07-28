@@ -1,0 +1,662 @@
+test_handlers.py
+92:    def test_true_returns_on(self):
+95:    def test_false_returns_off(self):
+106:    def test_escape_calls_back(self, mock_context):
+112:    def test_s_toggles_strip_input_on(self, mock_context):
+122:    def test_s_toggles_strip_input_off(self, mock_context):
+132:    def test_d_toggles_debug_mode_on(self, mock_context):
+142:    def test_d_toggles_debug_mode_off(self, mock_context):
+152:    def test_a_toggles_default_action_to_auto(self, mock_context):
+164:    def test_a_toggles_default_action_to_copy(self, mock_context):
+175:    def test_unknown_key_ignored(self, mock_context):
+184:    def test_special_key_without_handler_ignored(self, mock_context):
+192:    def test_default_strip_input_is_on(self, mock_context):
+201:    def test_default_debug_mode_is_off(self, mock_context):
+210:    def test_default_default_action_is_copy(self, mock_context):
+245:    def test_escape_cancels(self, mock_context_with_state):
+255:    def test_n_cancels(self, mock_context_with_state):
+265:    def test_n_uppercase_cancels(self, mock_context_with_state):
+274:    def test_y_confirms_and_executes_action(self, mock_context_with_state):
+280:        def test_action(params, context):
+304:    def test_y_uppercase_confirms(self, mock_context_with_state):
+309:        def test_action(params, context):
+324:    def test_unknown_action_speaks_error(self, mock_context_with_state):
+335:    def test_other_key_repeats_prompt(self, mock_context_with_state):
+346:    def test_other_key_no_prompt_silent(self, mock_context_with_state):
+357:    def test_state_cleared_on_confirm(self, mock_context_with_state):
+361:        def test_action(params, context):
+377:    def test_state_cleared_on_cancel(self, mock_context_with_state):
+389:    def test_special_key_ignored(self, mock_context_with_state):
+425:    def test_escape_returns_to_previous(self, mock_context_with_mark, monkeypatch):
+434:    def test_stores_clipboard_at_key(self, mock_context_with_mark, monkeypatch):
+452:    def test_strips_content_when_enabled(self, mock_context_with_mark, monkeypatch):
+465:    def test_no_strip_when_disabled(self, mock_context_with_mark, monkeypatch):
+478:    def test_non_alnum_key_ignored(self, mock_context_with_mark, monkeypatch):
+491:    def test_special_key_ignored(self, mock_context_with_mark):
+501:    def test_numeric_key_works(self, mock_context_with_mark, monkeypatch):
+513:    def test_uses_current_buffer_id(self, mock_context_with_mark, monkeypatch):
+526:    def test_empty_clipboard_stores_empty(self, mock_context_with_mark, monkeypatch):
+546:    def test_http_url(self):
+549:    def test_https_url(self):
+552:    def test_url_with_path(self):
+555:    def test_url_with_port(self):
+558:    def test_ip_url(self):
+561:    def test_no_protocol_invalid(self):
+564:    def test_plain_text_invalid(self):
+571:    def test_file_uri(self):
+574:    def test_absolute_path_exists(self, tmp_path):
+580:    def test_absolute_path_not_exists(self):
+583:    def test_relative_path_false(self):
+586:    def test_domain_false(self):
+589:    def test_url_false(self):
+592:    def test_tilde_expansion(self):
+596:    def test_tilde_path_exists(self, tmp_path, monkeypatch):
+603:    def test_tilde_path_not_exists(self):
+614:    def test_escape_returns_to_previous(self, mock_context_with_mark):
+623:    def test_no_data_speaks_error(self, mock_context_with_mark):
+633:    def test_opens_valid_url(self, mock_context_with_mark, monkeypatch):
+651:    def test_domain_without_protocol_rejected(self, mock_context_with_mark):
+662:    def test_invalid_url_speaks_error(self, mock_context_with_mark):
+672:    def test_non_alnum_key_ignored(self, mock_context_with_mark):
+681:    def test_special_key_ignored(self, mock_context_with_mark):
+726:    def test_escape_exits(self, mock_context_for_history):
+735:    def test_up_navigates_previous(self, mock_context_for_history):
+745:    def test_down_at_newest_announces_boundary(self, mock_context_for_history):
+755:    def test_ctrl_p_navigates_previous(self, mock_context_for_history):
+764:    def test_ctrl_n_navigates_next(self, mock_context_for_history):
+774:    def test_delete_marks_entry_deleted(self, mock_context_for_history):
+785:    def test_delete_already_deleted_announces(self, mock_context_for_history):
+795:    def test_ctrl_c_copies_to_clipboard(self, mock_context_for_history, monkeypatch):
+808:    def test_ctrl_t_reads_timestamp(self, mock_context_for_history):
+817:    def test_regular_char_exits(self, mock_context_for_history):
+826:    def test_global_mode_formatting(self, mock_context_for_history):
+876:    def test_escape_exits(self, mock_context_for_list):
+885:    def test_backspace_exits(self, mock_context_for_list):
+894:    def test_up_moves_toward_item_1(self, mock_context_for_list):
+905:    def test_down_moves_away_from_item_1(self, mock_context_for_list):
+915:    def test_j_moves_next(self, mock_context_for_list):
+925:    def test_k_moves_previous(self, mock_context_for_list):
+935:    def test_comma_jumps_to_top(self, mock_context_for_list):
+945:    def test_period_jumps_to_end(self, mock_context_for_list):
+955:    def test_enter_reads_current_item(self, mock_context_for_list):
+966:    def test_delete_removes_item(self, mock_context_for_list):
+978:    def test_a_appends_from_clipboard(self, mock_context_for_list, monkeypatch):
+997:    def test_a_empty_clipboard_announces(self, mock_context_for_list, monkeypatch):
+1008:    def test_help_shows_commands(self, mock_context_for_list):
+1017:    def test_ctrl_p_moves_toward_item_1(self, mock_context_for_list):
+1027:    def test_ctrl_n_moves_away_from_item_1(self, mock_context_for_list):
+1037:    def test_ctrl_a_enters_all_mode(self, mock_context_for_list):
+1047:    def test_all_mode_c_copies_all_items(self, mock_context_for_list, monkeypatch):
+1065:    def test_all_mode_escape_cancels(self, mock_context_for_list):
+1077:    def test_all_mode_unknown_key_cancels(self, mock_context_for_list):
+1088:    def test_all_mode_empty_list_announces(self, mock_context_for_list):
+1100:    def test_all_mode_b_opens_urls(self, mock_context_for_list, monkeypatch):
+1120:    def test_all_mode_b_no_urls_announces(self, mock_context_for_list):
+1164:    def test_backspace_goes_back(self, mock_context_for_read):
+1174:    def test_backspace_at_root_announces(self, mock_context_for_read):
+1184:    def test_delete_no_selection_announces(self, mock_context_for_read):
+1194:    def test_delete_removes_entry(self, mock_context_for_read):
+1207:    def test_first_press_reads_value(self, mock_context_for_read):
+1217:    def test_no_data_announces(self, mock_context_for_read):
+1227:    def test_second_press_copies(self, mock_context_for_read, monkeypatch):
+1243:    def test_ctrl_o_switches_to_options(self, mock_context_for_read):
+1252:    def test_ctrl_j_reads_clipboard(self, mock_context_for_read, monkeypatch):
+1263:    def test_ctrl_c_copies_last_value(self, mock_context_for_read, monkeypatch):
+1277:    def test_ctrl_y_writes_clipboard(self, mock_context_for_read, monkeypatch):
+1291:    def test_buffer_entry_calls_into(self, mock_context_for_read):
+1302:    def test_list_first_press_announces(self, mock_context_for_read):
+1313:    def test_list_second_press_enters_mode(self, mock_context_for_read):
+1325:    def test_non_alnum_ignored(self, mock_context_for_read):
+1334:    def test_ctrl_g_creates_buffer(self, mock_context_for_read):
+1348:    def test_auto_action_opens_url(self, mock_context_for_read, monkeypatch):
+
+mark/test_gremlin_attacks.py
+13:    def test_get_mutates_mark_during_path_traversal(self):
+47:    def test_get_raises_exception_mid_traversal(self):
+66:    def test_get_sleeps_forever(self):
+91:    def test_buffer_points_to_itself(self):
+110:    def test_get_returns_different_results_each_call(self):
+131:    def test_infinite_chain_with_large_buffer_ids(self):
+157:    def test_poison_stack_with_non_int_values(self):
+181:    def test_poisoned_stack_survives_until_pop(self):
+220:    def test_store_is_none(self):
+231:    def test_store_missing_get_method(self):
+244:    def test_store_get_not_callable(self):
+264:    def test_buffer_id_zero(self):
+289:    def test_buffer_id_negative(self):
+309:    def test_buffer_id_max_int(self):
+337:    def test_massive_stack(self):
+358:    def test_stack_memory_exhaustion(self):
+383:    def test_last_retrieved_with_raising_getattribute(self):
+402:    def test_last_retrieved_with_raising_repr(self):
+422:    def test_last_retrieved_memory_leak(self):
+
+store/test_store_oracle.py
+48:    def test_set_then_get_returns_value(self, store_factory, key, value):
+58:    def test_get_returns_newest(self, store_factory, key, values_list):
+68:    def test_set_preserves_label(self, store_factory, key, value, label):
+77:    def test_different_keys_independent(self, store_factory, key1, key2, value1, value2):
+96:    def test_delete_makes_invisible(self, store_factory, key, value):
+105:    def test_restore_makes_visible(self, store_factory, key, value):
+116:    def test_delete_preserves_in_history(self, store_factory, key, value):
+136:    def test_history_length_matches_sets(self, store_factory, key, values_list):
+146:    def test_history_ordered_newest_first(self, store_factory, key, values_list):
+165:    def test_create_buffer_makes_is_buffer_true(self, store_factory, key):
+173:    def test_value_is_not_buffer(self, store_factory, key, value):
+181:    def test_buffer_ids_unique(self, store_factory, buffer_keys):
+189:    def test_enter_buffer_returns_create_id(self, store_factory, key):
+206:    def test_create_list_makes_is_list_true(self, store_factory, key):
+214:    def test_list_items_count_matches_appends(self, store_factory, key, items):
+225:    def test_list_items_ordered_by_append(self, store_factory, key, items):
+237:    def test_list_item_indices_sequential(self, store_factory, key, items):
+257:    def test_children_includes_all_set_keys(self, store_factory, entries):
+269:    def test_deleted_not_in_children(self, store_factory, key, value):
+288:    def test_buffer_and_value_coexist(self, store_factory, key, value):
+302:    def test_list_conversion_preserves_original(self, store_factory, key, old_value, new_value):
+314:    def test_entry_ids_are_positive(self, store_factory, key, value):
+
+store/test_store_gremlin.py
+36:    def test_get_with_integer_key(self, store):
+41:    def test_get_with_list_key(self, store):
+46:    def test_get_with_dict_key(self, store):
+51:    def test_set_with_integer_value(self, store):
+58:    def test_set_with_bytes_value(self, store):
+68:    def test_buffer_id_as_string(self, store):
+78:    def test_buffer_id_as_float(self, store):
+89:    def test_empty_key(self, store):
+95:    def test_whitespace_only_key(self, store):
+100:    def test_newline_in_key(self, store):
+105:    def test_null_byte_in_key(self, store):
+115:    def test_null_byte_in_value(self, store):
+124:    def test_very_long_key(self, store):
+130:    def test_negative_buffer_id(self, store):
+136:    def test_zero_buffer_id(self, store):
+141:    def test_huge_buffer_id(self, store):
+150:    def test_emoji_key(self, store):
+155:    def test_mixed_scripts(self, store):
+160:    def test_rtl_text(self, store):
+165:    def test_zalgo_text(self, store):
+171:    def test_zero_width_chars(self, store):
+181:    def test_bom_in_value(self, store):
+186:    def test_surrogate_pairs(self, store):
+196:    def test_sql_in_key(self, store):
+203:    def test_sql_in_value(self, store):
+209:    def test_sql_in_label(self, store):
+215:    def test_format_string_attack(self, store):
+224:    def test_very_large_value(self, store):
+231:    def test_many_entries_same_key(self, store):
+238:    def test_deeply_nested_buffers(self, store):
+248:    def test_many_buffers(self, store):
+260:    def test_multiple_stores_read_own_writes(self, store, db_path):
+275:    def test_mutate_returned_entry(self, store):
+285:    def test_mutate_history_list(self, store):
+300:    def test_delete_already_deleted(self, store):
+308:    def test_restore_twice(self, store):
+317:    def test_delete_buffer_that_contains_buffers(self, store):
+333:    def test_append_to_deleted_list(self, store):
+342:    def test_list_items_of_value(self, store):
+349:    def test_create_list_at_buffer(self, store):
+
+mode/test_mode_syndic.py
+104:    def test_construct_with_store_and_teller(self, store, teller):
+110:    def test_initial_mode_is_none(self, mode):
+114:    def test_store_reference_maintained(self, mode, store):
+127:    def test_teller_reference_maintained(self, mode, teller):
+144:    def test_register_valid_handler(self, mode):
+150:    def test_register_multiple_modes(self, mode):
+161:    def test_register_duplicate_mode_replaces(self, mode):
+176:    def test_register_invalid_name_empty(self, mode):
+183:    def test_register_invalid_name_none(self, mode):
+190:    def test_register_invalid_handler_none(self, mode):
+195:    def test_register_invalid_handler_not_callable(self, mode):
+205:    def test_switch_to_registered_mode(self, mode):
+213:    def test_switch_to_unregistered_mode_raises(self, mode):
+218:    def test_switch_updates_current(self, mode):
+232:    def test_switch_to_same_mode(self, mode):
+244:    def test_switch_from_none(self, mode):
+253:    def test_switch_multiple_transitions(self, mode):
+280:    def test_handle_routes_to_current_mode(self, mode):
+292:    def test_handle_with_no_current_mode(self, mode):
+304:    def test_handle_multiple_events(self, mode):
+320:    def test_handle_routes_to_correct_mode_after_switch(self, mode):
+340:    def test_handle_with_modifiers(self, mode):
+359:    def test_context_contains_store(self, mode, store):
+369:    def test_context_contains_teller(self, mode, teller):
+379:    def test_context_contains_switch_function(self, mode):
+389:    def test_context_switch_function_works(self, mode):
+411:    def test_context_contains_current_mode(self, mode):
+421:    def test_context_contains_get_state(self, mode):
+431:    def test_context_get_state_returns_dict(self, mode):
+450:    def test_modes_have_separate_state(self, mode):
+483:    def test_state_persists_across_switches(self, mode):
+518:    def test_handler_exception_caught_not_propagated(self, mode):
+533:    def test_mode_remains_functional_after_handler_error(self, mode):
+564:    def test_switch_during_event_handling(self, mode):
+580:    def test_mode_names_with_special_characters(self, mode):
+591:    def test_empty_event_key(self, mode):
+603:    def test_many_registered_modes(self, mode):
+612:    def test_handler_can_access_store(self, mode, store):
+626:    def test_handler_can_use_teller(self, mode, teller):
+637:    def test_rapid_mode_switching(self, mode):
+650:    def test_current_property_is_readonly(self, mode):
+
+mode/test_mode_oracle.py
+45:def test_get_state_returns_wrong_mode_state_after_switch():
+98:def test_get_state_cross_contamination():
+147:def test_state_dict_mutation_during_get_state():
+195:def test_partial_mode_switch_on_exception():
+252:def test_switch_to_current_mode_state_behavior():
+291:def test_thread_safety_documentation():
+317:def test_switch_with_none_gives_confusing_error():
+338:def test_switch_with_integer_gives_confusing_error():
+362:def test_handle_with_none_gives_confusing_error():
+384:def test_handle_with_wrong_type_gives_confusing_error():
+409:def test_state_dict_memory_leak():
+457:def test_state_dict_persists_after_handler_removal():
+
+mark/test_mark.py
+56:    def test_requires_store(self):
+62:    def test_default_buffer_id_is_root(self, mark):
+66:    def test_default_stack_is_empty(self, mark):
+70:    def test_default_last_retrieved_is_none(self, mark):
+74:    def test_custom_initial_buffer_id(self, mock_store):
+80:    def test_custom_initial_does_not_affect_stack(self, mock_store):
+86:    def test_stack_not_shared_between_instances(self, mock_store):
+103:    def test_buffer_id_must_be_int_on_construction(self, mock_store):
+109:    def test_buffer_id_must_be_int_on_into(self, mark):
+114:    def test_buffer_id_none_rejected(self, mock_store):
+120:    def test_buffer_id_dict_rejected(self, mark):
+133:    def test_into_updates_buffer_id(self, mark):
+138:    def test_into_pushes_previous_to_stack(self, mark):
+143:    def test_into_multiple_builds_stack(self, mark):
+151:    def test_into_same_buffer_still_pushes(self, mark_at_5):
+157:    def test_into_returns_self(self, mark):
+162:    def test_into_chaining(self, mark):
+168:    def test_into_preserves_stack_identity(self, mark):
+182:    def test_back_pops_stack_to_current(self, mark):
+189:    def test_back_returns_true_on_success(self, mark):
+194:    def test_back_returns_false_when_empty(self, mark):
+198:    def test_back_does_not_change_buffer_when_empty(self, mark_at_5):
+203:    def test_back_is_idempotent_when_empty(self, mark_at_5):
+211:    def test_back_multiple_unwinds_stack(self, mark):
+226:    def test_back_preserves_stack_identity(self, mark):
+241:    def test_reset_clears_stack(self, mark):
+247:    def test_reset_returns_to_root(self, mark):
+253:    def test_reset_from_root_is_noop(self, mark):
+259:    def test_reset_returns_self(self, mark):
+272:    def test_full_unwind_returns_to_start(self, mock_store):
+285:    def test_back_then_into_pushes_current(self, mark):
+294:    def test_deep_navigation(self, mark):
+316:    def test_set_last_retrieved(self, mark):
+322:    def test_last_retrieved_preserves_identity(self, mark):
+328:    def test_last_retrieved_persists_through_navigation(self, mark):
+336:    def test_last_retrieved_persists_through_reset(self, mark):
+344:    def test_last_retrieved_can_be_cleared(self, mark):
+350:    def test_last_retrieved_accepts_any_type(self, mark):
+364:    def test_path_at_root(self, mark):
+371:    def test_path_shows_breadcrumb(self, mark):
+381:    def test_path_order_is_root_to_current(self, mark):
+392:    def test_path_updates_after_back(self, mark):
+401:    def test_path_updates_after_reset(self, mark):
+417:    def test_construction_with_true(self, mock_store):
+423:    def test_construction_with_false(self, mock_store):
+429:    def test_into_with_true(self, mark):
+435:    def test_into_with_false(self, mark):
+445:    def test_negative_buffer_id_construction(self, mock_store):
+451:    def test_zero_buffer_id(self, mock_store):
+457:    def test_large_buffer_id(self, mock_store):
+464:    def test_into_negative(self, mark):
+469:    def test_into_very_large(self, mark):
+479:    def test_store_get_raises_exception(self, mark):
+492:    def test_store_get_returns_non_dict(self):
+505:    def test_store_get_returns_dict_without_content(self):
+518:    def test_store_get_returns_dict_without_buffer_id(self):
+535:    def test_self_referencing_entry(self):
+552:    def test_two_entry_cycle(self):
+570:    def test_long_chain_with_eventual_cycle(self):
+595:    def test_very_deep_navigation(self, mock_store):
+614:    def test_very_deep_path_computation(self):
+642:    def test_direct_stack_mutation_then_back(self, mark):
+653:    def test_stack_cleared_externally(self, mark):
+662:    def test_stack_replaced_with_non_list(self, mark):
+677:    def test_numpy_like_int64(self, mock_store):
+693:    def test_int_enum_accepted(self, mock_store):
+709:    def test_into_with_int_subclass(self, mark):
+722:    def test_store_returns_dict_with_non_int_buffer_id(self):
+741:    def test_store_returns_non_string_content(self):
+758:    def test_store_returns_unhashable_buffer_id(self):
+784:    def test_million_level_deep_path(self):
+806:    def test_million_stack_pushes(self, mock_store):
+822:    def test_float_that_equals_int(self, mock_store):
+830:    def test_object_with_malicious_eq(self):
+862:    def test_emoji_in_content(self):
+879:    def test_rtl_text_in_content(self):
+895:    def test_zero_width_characters_in_content(self):
+912:    def test_combining_characters_in_content(self):
+928:    def test_mixed_unicode_content(self):
+952:    def test_numeric_content(self):
+969:    def test_none_content(self):
+986:    def test_list_content(self):
+1003:    def test_dict_content(self):
+1022:    def test_missing_content_key(self):
+1043:    def test_iterate_stack_while_pushing(self, mock_store):
+1069:    def test_iterate_stack_while_popping(self, mock_store):
+1088:    def test_external_stack_clear_during_pathfinding(self):
+1125:    def test_last_retrieved_with_circular_reference(self, mark):
+1136:    def test_last_retrieved_with_self_reference(self, mark):
+1146:    def test_last_retrieved_large_object(self, mark):
+1159:    def test_last_retrieved_mutable_object_mutation(self, mark):
+1172:    def test_last_retrieved_none_vs_unset(self, mark):
+1189:    def test_last_retrieved_with_slots_object(self, mark):
+1204:    def test_last_retrieved_with_lambda(self, mark):
+
+store/test_store.py
+39:    def test_get_nonexistent_key_returns_none(self, store):
+43:    def test_get_after_set_returns_value(self, store):
+51:    def test_get_returns_newest_when_multiple_values(self, store):
+59:    def test_get_with_explicit_buffer_id(self, store):
+65:    def test_get_from_wrong_buffer_returns_none(self, store):
+74:    def test_set_returns_entry(self, store):
+82:    def test_set_with_label(self, store):
+87:    def test_set_in_specific_buffer(self, store):
+92:    def test_set_creates_timestamp(self, store):
+97:    def test_set_defaults_to_not_deleted(self, store):
+106:    def test_delete_existing_returns_true(self, store):
+111:    def test_delete_nonexistent_returns_false(self, store):
+115:    def test_deleted_entry_not_returned_by_get(self, store):
+121:    def test_delete_is_soft_by_default(self, store):
+134:    def test_history_returns_all_values_at_key(self, store):
+145:    def test_history_excludes_deleted_by_default(self, store):
+154:    def test_history_includes_deleted_when_requested(self, store):
+162:    def test_history_empty_for_nonexistent_key(self, store):
+170:    def test_children_returns_entries_in_buffer(self, store):
+181:    def test_children_excludes_deleted(self, store):
+191:    def test_children_specific_buffer(self, store):
+215:    def test_is_buffer_false_for_value(self, store):
+220:    def test_is_buffer_true_for_buffer(self, store):
+225:    def test_is_buffer_false_for_nonexistent(self, store):
+233:    def test_create_buffer_returns_new_id(self, store):
+239:    def test_create_buffer_makes_key_a_buffer(self, store):
+244:    def test_create_multiple_buffers_unique_ids(self, store):
+251:    def test_create_nested_buffer(self, store):
+262:    def test_delete_buffer_returns_success(self, store):
+268:    def test_delete_root_buffer_fails(self, store):
+274:    def test_delete_buffer_removes_contents(self, store):
+281:    def test_delete_buffer_recursive(self, store):
+292:    def test_delete_nonexistent_buffer_fails(self, store):
+301:    def test_enter_buffer_returns_buffer_id(self, store):
+307:    def test_enter_nonexistent_returns_none(self, store):
+311:    def test_enter_value_returns_none(self, store):
+324:    def test_is_list_false_for_value(self, store):
+329:    def test_is_list_true_for_list(self, store):
+334:    def test_is_list_false_for_buffer(self, store):
+343:    def test_create_list_returns_id(self, store):
+348:    def test_create_list_at_existing_value_converts(self, store):
+361:    def test_create_list_empty_when_no_existing(self, store):
+371:    def test_list_items_returns_ordered(self, store):
+382:    def test_list_items_have_indices(self, store):
+392:    def test_list_items_excludes_deleted(self, store):
+410:    def test_append_returns_index(self, store):
+418:    def test_append_increases_list_size(self, store):
+433:    def test_soft_delete_sets_flag(self, store):
+441:    def test_soft_delete_preserves_data(self, store):
+453:    def test_restore_undeletes_entry(self, store):
+464:    def test_restore_nonexistent_fails(self, store):
+469:    def test_restore_conflict_detection(self, store):
+479:    def test_restore_already_active_entry(self, store):
+494:    def test_unicode_in_values(self, store):
+500:    def test_unicode_in_labels(self, store):
+506:    def test_empty_string_value(self, store):
+512:    def test_very_long_value(self, store):
+519:    def test_special_characters_in_key(self, store):
+527:    def test_none_buffer_id_uses_default(self, store):
+533:    def test_multiple_stores_same_key_same_buffer(self, store):
+546:    def test_root_buffer_exists(self, store):
+552:    def test_cannot_delete_root_buffer(self, store):
+565:    def test_get_with_none_key_raises(self, store):
+570:    def test_set_with_none_key_raises(self, store):
+575:    def test_set_with_none_value_raises(self, store):
+580:    def test_delete_buffer_with_none_raises(self, store):
+585:    def test_list_items_invalid_id_returns_empty(self, store):
+590:    def test_append_to_nonexistent_list_raises(self, store):
+603:    def test_get_after_set_matches(self, store):
+608:    def test_delete_makes_invisible(self, store):
+614:    def test_restore_makes_visible(self, store):
+621:    def test_buffer_ids_are_positive_integers(self, store):
+628:    def test_list_items_ordered_by_index(self, store):
+646:    def test_get_nonexistent_returns_none(self, store):
+650:    def test_get_nonexistent_returns_default(self, store):
+654:    def test_get_after_set_returns_value(self, store):
+659:    def test_get_ignores_default_when_value_exists(self, store):
+668:    def test_set_creates_new_config(self, store):
+673:    def test_set_updates_existing_config(self, store):
+679:    def test_set_with_description(self, store):
+685:    def test_set_preserves_description_on_update(self, store):
+693:    def test_set_can_override_description(self, store):
+703:    def test_config_empty_string_value(self, store):
+708:    def test_config_unicode_value(self, store):
+713:    def test_config_special_chars_in_key(self, store):
+718:    def test_config_isolated_from_lore(self, store):
+727:    def test_config_persists_across_connections(self, db_path):
+743:    def test_get_config_with_none_key_raises(self, store):
+748:    def test_set_config_with_none_key_raises(self, store):
+753:    def test_set_config_with_none_value_raises(self, store):
+
+teller/test_teller_oracle.py
+24:    def test_name_is_nonempty_string(self, handler_name):
+33:    def test_name_is_lowercase(self, handler_name):
+41:    def test_stop_never_raises(self, handler_name):
+60:    def test_text_handler_speak_never_crashes(self, text):
+69:    def test_debug_handler_speak_never_crashes(self, text):
+81:    def test_speed_parameter_doesnt_crash(self, text, speed):
+92:    def test_wait_parameter_is_boolean(self, text, wait):
+108:    def test_list_handlers_is_stable(self, data):
+117:    def test_listed_handlers_are_gettable(self, data):
+127:    def test_get_handler_returns_fresh_instance(self, handler_name):
+138:    def test_unknown_handler_raises(self, name):
+155:    def test_espeak_calls_subprocess_for_nonempty(self, text):
+169:    def test_espeak_passes_speed_to_command(self, speed):
+195:    def test_handler_name_matches_requested(self, handler_name):
+203:    def test_multiple_stops_safe(self, n):
+212:    def test_speak_stop_alternation(self, n):
+
+mode/test_mode.py
+86:    def test_mode_creation(self):
+96:    def test_initial_mode_is_none(self):
+106:    def test_mode_stores_dependencies(self):
+126:    def test_register_handler(self):
+140:    def test_register_multiple_handlers(self):
+158:    def test_register_duplicate_mode_replaces(self):
+182:    def test_register_with_invalid_name_raises(self):
+196:    def test_register_with_none_name_raises(self):
+210:    def test_register_with_non_callable_raises(self):
+229:    def test_switch_to_registered_mode(self):
+242:    def test_switch_to_unregistered_mode_raises(self):
+253:    def test_switch_between_modes(self):
+273:    def test_switch_to_same_mode_is_noop(self):
+295:    def test_handle_routes_to_current_mode(self):
+317:    def test_handle_routes_to_correct_handler(self):
+346:    def test_handle_before_switch_raises(self):
+359:    def test_handle_multiple_events(self):
+389:    def test_context_has_teller(self):
+410:    def test_context_has_store(self):
+431:    def test_context_has_switch(self):
+452:    def test_context_switch_works(self):
+475:    def test_context_current_mode(self):
+504:    def test_mode_has_isolated_state(self):
+544:    def test_state_persists_across_switches(self):
+569:    def test_get_state_stable_after_mid_handler_switch(self):
+610:    def test_no_cross_mode_state_pollution(self):
+648:    def test_handler_exception_logged_not_raised(self):
+665:    def test_handler_exception_allows_continued_operation(self):
+697:    def test_mode_names_are_case_sensitive(self):
+718:    def test_whitespace_mode_name_rejected(self):
+729:    def test_special_char_mode_names_allowed(self):
+744:    def test_rapid_mode_switching(self):
+763:    def test_handler_can_register_new_mode(self):
+788:    def test_read_then_options_then_back(self):
+835:    def test_message_spoken_on_switch(self):
+848:    def test_no_message_if_none(self):
+861:    def test_silent_switch_suppresses_message(self):
+874:    def test_get_message(self):
+885:    def test_set_message_dynamically(self):
+903:    def test_previous_mode_tracked(self):
+920:    def test_back_returns_to_previous(self):
+937:    def test_back_does_nothing_if_no_previous(self):
+951:    def test_context_has_back(self):
+971:    def test_context_has_previous_mode(self):
+998:    def test_on_enter_called_on_switch(self):
+1012:    def test_on_exit_called_on_switch_away(self):
+1030:    def test_on_enter_on_exit_order(self):
+1050:    def test_on_enter_exception_logged_not_raised(self):
+1070:    def test_list_modes_empty(self):
+1080:    def test_list_modes_returns_registered(self):
+
+listener/test_listener.py
+25:    def test_char_event_valid(self):
+36:    def test_special_key_event_valid(self):
+47:    def test_char_with_modifiers(self):
+58:    def test_multiple_modifiers(self):
+70:    def test_release_event_type(self):
+80:    def test_reject_both_char_and_key(self):
+90:    def test_reject_neither_char_nor_key(self):
+100:    def test_reject_non_enum_key(self):
+110:    def test_frozen_immutable(self):
+121:    def test_equality(self):
+137:    def test_inequality_different_char(self):
+143:    def test_hashable(self):
+165:    def test_space_char(self):
+175:    def test_unicode_char(self):
+185:    def test_unicode_cjk(self):
+195:    def test_newline_char(self):
+205:    def test_empty_string_char_rejected(self):
+215:    def test_multi_char_string_rejected(self):
+234:    def test_all_special_keys_valid(self, special_key):
+252:    def test_mock_listener_import(self):
+257:    def test_start_accepts_callback(self):
+269:    def test_inject_calls_callback(self):
+286:    def test_inject_multiple_events(self):
+308:    def test_stop_then_inject_raises(self):
+320:    def test_inject_before_start_raises(self):
+330:    def test_start_twice_raises(self):
+340:    def test_stop_before_start_is_noop(self):
+347:    def test_stop_twice_is_noop(self):
+356:    def test_restart_after_stop(self):
+390:    def test_pynput_listener_import(self):
+395:    def test_implements_protocol(self, pynput_listener):
+405:    def test_start_twice_raises(self, pynput_listener):
+412:    def test_stop_before_start_is_noop(self, pynput_listener):
+420:    def test_shift_modifier_tracked(self):
+442:    def test_ctrl_modifier_tracked(self):
+452:    def test_modifier_released(self):
+464:    def test_multiple_modifiers(self):
+478:    def test_left_right_ctrl_treated_same(self):
+495:    def test_left_right_shift_treated_same(self):
+509:    def test_left_right_alt_treated_same(self):
+527:    def test_char_key_normalized(self):
+547:    def test_escape_mapped(self):
+563:    def test_backspace_mapped(self):
+579:    def test_tab_mapped(self):
+595:    def test_arrow_keys_mapped(self):
+619:    def test_key_without_char_attribute(self):
+638:    def test_unknown_special_key_skipped(self):
+658:    def test_press_emits_press_event(self):
+676:    def test_release_emits_release_event(self):
+698:    def test_release_without_press(self):
+708:    def test_callback_exception_continues(self):
+
+teller/test_teller.py
+53:    def test_has_name_property(self, handler):
+57:    def test_name_is_string(self, handler):
+62:    def test_has_speak_method(self, handler):
+67:    def test_has_stop_method(self, handler):
+72:    def test_stop_callable_without_args(self, handler):
+85:    def test_discovers_handlers_in_directory(self, temp_handlers_dir):
+109:    def test_ignores_init_py(self, temp_handlers_dir):
+119:    def test_ignores_non_handler_classes(self, temp_handlers_dir):
+133:    def test_handles_import_error_gracefully(self, temp_handlers_dir):
+143:    def test_registers_with_handler_name(self, temp_handlers_dir):
+180:    def test_name_is_text(self, handler):
+183:    def test_outputs_to_stdout(self, handler, capsys):
+189:    def test_empty_string_no_error(self, handler, capsys):
+195:    def test_unicode_preserved(self, handler, capsys):
+201:    def test_long_text_not_truncated(self, handler, capsys):
+208:    def test_speed_parameter_accepted(self, handler):
+214:    def test_wait_parameter_accepted(self, handler):
+219:    def test_stop_is_noop(self, handler):
+236:    def test_name_is_debug(self, handler):
+239:    def test_includes_spoken_text(self, handler, capsys):
+245:    def test_includes_timestamp(self, handler, capsys):
+253:    def test_includes_speed_value(self, handler, capsys):
+259:    def test_includes_wait_value(self, handler, capsys):
+266:    def test_includes_handler_name(self, handler, capsys):
+285:    def test_name_is_espeak(self, handler):
+288:    def test_calls_espeak_subprocess(self, handler, mock_subprocess):
+295:    def test_passes_text_to_espeak(self, handler, mock_subprocess):
+308:    def test_passes_speed_argument(self, handler, mock_subprocess):
+321:    def test_wait_false_uses_popen(self, handler, mock_subprocess):
+326:    def test_wait_true_uses_call(self, handler, mock_subprocess):
+331:    def test_stop_kills_process(self, handler, mock_subprocess):
+348:    def test_speak_uses_default_handler(self):
+356:    def test_announce_calls_stop_then_speak(self):
+366:    def test_stop_delegates_to_handler(self):
+374:    def test_get_handler_returns_by_name(self):
+380:    def test_get_handler_unknown_raises(self):
+386:    def test_list_handlers_returns_all(self):
+394:    def test_set_default_handler_changes_default(self):
+406:    def test_set_default_unknown_raises(self):
+426:    def test_empty_string(self, handler):
+430:    def test_whitespace_only(self, handler):
+434:    def test_very_long_text(self, handler):
+438:    def test_unicode_emoji(self, handler):
+442:    def test_unicode_rtl(self, handler):
+446:    def test_newlines_in_text(self, handler):
+450:    def test_speed_boundary_low(self, handler):
+454:    def test_speed_boundary_high(self, handler):
+458:    def test_speed_zero(self, handler):
+466:    def test_speed_negative(self, handler):
+486:    def test_rapid_successive_calls(self, handler):
+491:    def test_stop_during_noop(self, handler):
+497:    def test_speak_stop_speak(self, handler):
+
+projects/tome-of-lore/STRATEGIC_IMPROVEMENT_BRIEF.md
+79:def test_navigation_speaks(mock_tts, browser):
+
+teller/test_teller_gremlin.py
+17:    def test_speak_with_none(self):
+24:    def test_speak_with_integer(self):
+30:    def test_speak_with_list(self):
+36:    def test_speak_with_dict(self):
+42:    def test_speak_with_bytes(self):
+48:    def test_speed_as_string(self):
+54:    def test_speed_as_none(self):
+60:    def test_wait_as_string(self):
+74:    def test_null_bytes_in_text(self):
+80:    def test_control_characters(self):
+86:    def test_only_whitespace(self):
+92:    def test_mixed_encodings(self):
+98:    def test_surrogate_pairs(self):
+104:    def test_extremely_long_text(self):
+111:    def test_many_newlines(self):
+125:    def test_semicolon_injection(self):
+138:    def test_backtick_injection(self):
+146:    def test_dollar_paren_injection(self):
+154:    def test_pipe_injection(self):
+162:    def test_redirect_injection(self):
+178:    def test_rapid_speak_calls(self):
+185:    def test_rapid_stop_calls(self):
+192:    def test_interleaved_speak_stop(self):
+200:    def test_many_handler_instances(self):
+214:    def test_get_handler_with_path_traversal(self):
+220:    def test_get_handler_with_special_chars(self):
+226:    def test_get_handler_empty_string(self):
+232:    def test_get_handler_whitespace(self):
+246:    def test_quotes_in_text(self):
+255:    def test_single_quotes_in_text(self):
+263:    def test_backslashes_in_text(self):
+271:    def test_unicode_in_espeak(self):
+279:    def test_espeak_not_found(self):
+289:    def test_espeak_process_fails(self):
+305:    def test_stop_doesnt_kill_external_espeak(self):
+332:    def test_empty_speak_calls_stop(self):
+353:    def test_set_default_handler_uses_singleton(self):

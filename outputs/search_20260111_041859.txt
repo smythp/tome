@@ -1,0 +1,4225 @@
+pytest.ini
+1:[pytest]
+2-testpaths = .
+3:python_files = test_*.py
+4:python_functions = test_*
+5-markers =
+6-    db: tests that interact with the database
+
+test_integration.py
+33-# Setup
+34-print("Setting up...")
+35:store = Store("/tmp/test_integration.db")
+36-teller = get_handler("text")
+37-mark = Mark(store)
+
+README.md
+56-- `utilities.py`: Helper functions
+57-- `CREATE.sql`: Database schema definition
+58:- `test_tome.py`: Automated tests
+
+test_handlers.py
+3-"""
+4-
+5:import pytest
+6:from unittest.mock import MagicMock, call
+7-
+8-from listener import KeyEvent, SpecialKey, EventType
+--
+29-# =============================================================================
+30-
+31:@pytest.fixture
+32-def mock_store():
+33-    """Create a mock Store with config methods."""
+--
+46-
+47-
+48:@pytest.fixture
+49-def mock_teller():
+50-    """Create a mock Teller."""
+--
+59-
+60-
+61:@pytest.fixture
+62-def mock_context(mock_store, mock_teller):
+63-    """Create a mock ModeContext."""
+--
+90-
+91-class TestStatusHelper:
+92:    def test_true_returns_on(self):
+93-        assert status(True) == "on"
+94-
+95:    def test_false_returns_off(self):
+96-        assert status(False) == "off"
+97-
+--
+104-    """Test options mode handler."""
+105-
+106:    def test_escape_calls_back(self, mock_context):
+107-        """Escape key returns to previous mode."""
+108-        event = make_event(key=SpecialKey.ESCAPE)
+--
+110-        mock_context.back.assert_called_once()
+111-
+112:    def test_s_toggles_strip_input_on(self, mock_context):
+113-        """Pressing 's' toggles strip_input from off to on."""
+114-        mock_context.store._config["strip_input"] = "off"
+--
+120-        assert "on" in mock_context.teller.spoken[0]
+121-
+122:    def test_s_toggles_strip_input_off(self, mock_context):
+123-        """Pressing 's' toggles strip_input from on to off."""
+124-        mock_context.store._config["strip_input"] = "on"
+--
+130-        assert "off" in mock_context.teller.spoken[0]
+131-
+132:    def test_d_toggles_debug_mode_on(self, mock_context):
+133-        """Pressing 'd' toggles debug_mode from off to on."""
+134-        mock_context.store._config["debug_mode"] = "off"
+--
+140-        assert "on" in mock_context.teller.spoken[0]
+141-
+142:    def test_d_toggles_debug_mode_off(self, mock_context):
+143-        """Pressing 'd' toggles debug_mode from on to off."""
+144-        mock_context.store._config["debug_mode"] = "on"
+--
+150-        assert "off" in mock_context.teller.spoken[0]
+151-
+152:    def test_a_toggles_default_action_to_auto(self, mock_context):
+153-        """Pressing 'a' toggles default_action from copy to auto."""
+154-        mock_context.store._config["default_action"] = "copy"
+--
+162-        assert "auto" in mock_context.teller.spoken[0]
+163-
+164:    def test_a_toggles_default_action_to_copy(self, mock_context):
+165-        """Pressing 'a' toggles default_action from auto to copy."""
+166-        mock_context.store._config["default_action"] = "auto"
+--
+173-        assert "copy" in mock_context.teller.spoken[0]
+174-
+175:    def test_unknown_key_ignored(self, mock_context):
+176-        """Unknown keys are ignored (no error, no action)."""
+177-        event = make_event(char="x")
+--
+182-        mock_context.back.assert_not_called()
+183-
+184:    def test_special_key_without_handler_ignored(self, mock_context):
+185-        """Special keys without handlers are ignored."""
+186-        event = make_event(key=SpecialKey.UP)
+--
+190-        mock_context.back.assert_not_called()
+191-
+192:    def test_default_strip_input_is_on(self, mock_context):
+193-        """Default strip_input is 'on' when not set."""
+194-        # Config is empty
+--
+199-        mock_context.store.set_config.assert_called_with("strip_input", "off")
+200-
+201:    def test_default_debug_mode_is_off(self, mock_context):
+202-        """Default debug_mode is 'off' when not set."""
+203-        # Config is empty
+--
+208-        mock_context.store.set_config.assert_called_with("debug_mode", "on")
+209-
+210:    def test_default_default_action_is_copy(self, mock_context):
+211-        """Default default_action is 'copy' when not set."""
+212-        # Config is empty
+--
+223-# =============================================================================
+224-
+225:@pytest.fixture
+226-def mock_context_with_state(mock_store, mock_teller):
+227-    """Create a mock ModeContext with working get_state()."""
+--
+243-    """Test confirm mode handler."""
+244-
+245:    def test_escape_cancels(self, mock_context_with_state):
+246-        """Escape key cancels and returns to previous mode."""
+247-        ctx = mock_context_with_state
+--
+253-        assert "Cancelled" in ctx.teller.spoken[0]
+254-
+255:    def test_n_cancels(self, mock_context_with_state):
+256-        """'n' key cancels and returns to previous mode."""
+257-        ctx = mock_context_with_state
+--
+263-        assert "Cancelled" in ctx.teller.spoken[0]
+264-
+265:    def test_n_uppercase_cancels(self, mock_context_with_state):
+266-        """'N' key (uppercase) cancels."""
+267-        ctx = mock_context_with_state
+--
+272-        ctx.back.assert_called_once()
+273-
+274:    def test_y_confirms_and_executes_action(self, mock_context_with_state):
+275-        """'y' key confirms and executes registered action."""
+276-        ctx = mock_context_with_state
+--
+278-        # Register a test action
+279-        action_called = []
+280:        def test_action(params, context):
+281-            action_called.append(params)
+282-            return True, "Action done"
+283-
+284:        register_confirm_action("test_action", test_action)
+285-
+286-        # Set up state
+287:        ctx._state["action"] = "test_action"
+288-        ctx._state["params"] = {"foo": "bar"}
+289-
+--
+300-
+301-        # Cleanup
+302:        del CONFIRM_ACTIONS["test_action"]
+303-
+304:    def test_y_uppercase_confirms(self, mock_context_with_state):
+305-        """'Y' key (uppercase) confirms."""
+306-        ctx = mock_context_with_state
+307-
+308-        action_called = []
+309:        def test_action(params, context):
+310-            action_called.append(True)
+311-            return True, "Done"
+312-
+313:        register_confirm_action("test_action2", test_action)
+314:        ctx._state["action"] = "test_action2"
+315-
+316-        event = make_event(char="Y")
+--
+320-        ctx.back.assert_called_once()
+321-
+322:        del CONFIRM_ACTIONS["test_action2"]
+323-
+324:    def test_unknown_action_speaks_error(self, mock_context_with_state):
+325-        """Unknown action name speaks error message."""
+326-        ctx = mock_context_with_state
+--
+333-        ctx.back.assert_called_once()
+334-
+335:    def test_other_key_repeats_prompt(self, mock_context_with_state):
+336-        """Other keys repeat the prompt."""
+337-        ctx = mock_context_with_state
+--
+344-        ctx.back.assert_not_called()
+345-
+346:    def test_other_key_no_prompt_silent(self, mock_context_with_state):
+347-        """Other keys with no prompt are silent."""
+348-        ctx = mock_context_with_state
+--
+355-        ctx.back.assert_not_called()
+356-
+357:    def test_state_cleared_on_confirm(self, mock_context_with_state):
+358-        """State is cleared after confirm."""
+359-        ctx = mock_context_with_state
+360-
+361:        def test_action(params, context):
+362-            return True, "Done"
+363-
+364:        register_confirm_action("clear_test", test_action)
+365-        ctx._state["action"] = "clear_test"
+366-        ctx._state["params"] = {"x": 1}
+--
+375-        del CONFIRM_ACTIONS["clear_test"]
+376-
+377:    def test_state_cleared_on_cancel(self, mock_context_with_state):
+378-        """State is cleared after cancel."""
+379-        ctx = mock_context_with_state
+--
+387-        assert ctx._state == {}
+388-
+389:    def test_special_key_ignored(self, mock_context_with_state):
+390-        """Non-escape special keys are ignored."""
+391-        ctx = mock_context_with_state
+--
+404-# =============================================================================
+405-
+406:@pytest.fixture
+407-def mock_context_with_mark(mock_store, mock_teller):
+408-    """Create a mock ModeContext with mark."""
+--
+423-    """Test clipboard mode handler."""
+424-
+425:    def test_escape_returns_to_previous(self, mock_context_with_mark, monkeypatch):
+426-        """Escape key returns to previous mode."""
+427-        ctx = mock_context_with_mark
+--
+432-        ctx.back.assert_called_once()
+433-
+434:    def test_stores_clipboard_at_key(self, mock_context_with_mark, monkeypatch):
+435-        """Alphanumeric key stores clipboard content."""
+436-        import pyperclip
+--
+450-        ctx.switch.assert_called_with("read")
+451-
+452:    def test_strips_content_when_enabled(self, mock_context_with_mark, monkeypatch):
+453-        """Content is stripped when strip_input is on."""
+454-        import pyperclip
+--
+463-        ctx.store.set.assert_called_once_with("b", "spaced content", buffer_id=1)
+464-
+465:    def test_no_strip_when_disabled(self, mock_context_with_mark, monkeypatch):
+466-        """Content is not stripped when strip_input is off."""
+467-        import pyperclip
+--
+476-        ctx.store.set.assert_called_once_with("c", "  spaced content  ", buffer_id=1)
+477-
+478:    def test_non_alnum_key_ignored(self, mock_context_with_mark, monkeypatch):
+479-        """Non-alphanumeric keys are ignored."""
+480-        import pyperclip
+--
+489-        ctx.switch.assert_not_called()
+490-
+491:    def test_special_key_ignored(self, mock_context_with_mark):
+492-        """Non-escape special keys are ignored."""
+493-        ctx = mock_context_with_mark
+--
+499-        ctx.back.assert_not_called()
+500-
+501:    def test_numeric_key_works(self, mock_context_with_mark, monkeypatch):
+502-        """Numeric keys also store content."""
+503-        import pyperclip
+--
+511-        ctx.store.set.assert_called_once_with("5", "numeric content", buffer_id=1)
+512-
+513:    def test_uses_current_buffer_id(self, mock_context_with_mark, monkeypatch):
+514-        """Stores in the current buffer from mark."""
+515-        import pyperclip
+--
+524-        ctx.store.set.assert_called_once_with("x", "content", buffer_id=42)
+525-
+526:    def test_empty_clipboard_stores_empty(self, mock_context_with_mark, monkeypatch):
+527-        """Empty clipboard stores empty string."""
+528-        import pyperclip
+--
+544-    """Test URL validation helper."""
+545-
+546:    def test_http_url(self):
+547-        assert is_valid_url("http://example.com") is True
+548-
+549:    def test_https_url(self):
+550-        assert is_valid_url("https://example.com") is True
+551-
+552:    def test_url_with_path(self):
+553-        assert is_valid_url("https://example.com/path/to/page") is True
+554-
+555:    def test_url_with_port(self):
+556-        assert is_valid_url("http://localhost:8080") is True
+557-
+558:    def test_ip_url(self):
+559-        assert is_valid_url("http://192.168.1.1") is True
+560-
+561:    def test_no_protocol_invalid(self):
+562-        assert is_valid_url("example.com") is False
+563-
+564:    def test_plain_text_invalid(self):
+565-        assert is_valid_url("hello world") is False
+566-
+--
+569-    """Test file path detection helper."""
+570-
+571:    def test_file_uri(self):
+572-        assert looks_like_file("file:///home/user/doc.txt") is True
+573-
+574:    def test_absolute_path_exists(self, tmp_path):
+575-        # Create a temp file
+576:        test_file = tmp_path / "test.txt"
+577:        test_file.write_text("hello")
+578:        assert looks_like_file(str(test_file)) is True
+579-
+580:    def test_absolute_path_not_exists(self):
+581-        assert looks_like_file("/nonexistent/path/file.txt") is False
+582-
+583:    def test_relative_path_false(self):
+584-        assert looks_like_file("script.py") is False
+585-
+586:    def test_domain_false(self):
+587-        assert looks_like_file("example.com") is False
+588-
+589:    def test_url_false(self):
+590-        assert looks_like_file("https://example.com") is False
+591-
+592:    def test_tilde_expansion(self):
+593-        # Home directory always exists
+594-        assert looks_like_file("~") is True
+595-
+596:    def test_tilde_path_exists(self, tmp_path, monkeypatch):
+597-        # Create file in fake home
+598:        test_file = tmp_path / "testfile.txt"
+599:        test_file.write_text("hello")
+600-        monkeypatch.setenv("HOME", str(tmp_path))
+601-        assert looks_like_file("~/testfile.txt") is True
+602-
+603:    def test_tilde_path_not_exists(self):
+604-        assert looks_like_file("~/nonexistent_file_12345.txt") is False
+605-
+--
+612-    """Test browse mode handler."""
+613-
+614:    def test_escape_returns_to_previous(self, mock_context_with_mark):
+615-        """Escape key returns to previous mode."""
+616-        ctx = mock_context_with_mark
+--
+621-        ctx.back.assert_called_once()
+622-
+623:    def test_no_data_speaks_error(self, mock_context_with_mark):
+624-        """No data at key speaks error."""
+625-        ctx = mock_context_with_mark
+--
+631-        assert "No data" in ctx.teller.spoken[0]
+632-
+633:    def test_opens_valid_url(self, mock_context_with_mark, monkeypatch):
+634-        """Valid URL is opened in browser."""
+635-        import webbrowser
+--
+649-        assert "Opening" in ctx.teller.spoken[0]
+650-
+651:    def test_domain_without_protocol_rejected(self, mock_context_with_mark):
+652-        """Domain without protocol is rejected (protocol required)."""
+653-        ctx = mock_context_with_mark
+--
+660-        assert any("not a valid" in s.lower() for s in ctx.teller.spoken)
+661-
+662:    def test_invalid_url_speaks_error(self, mock_context_with_mark):
+663-        """Invalid URL speaks error and doesn't open."""
+664-        ctx = mock_context_with_mark
+--
+670-        assert "Not a valid URL" in ctx.teller.spoken[0]
+671-
+672:    def test_non_alnum_key_ignored(self, mock_context_with_mark):
+673-        """Non-alphanumeric keys are ignored."""
+674-        ctx = mock_context_with_mark
+--
+679-        ctx.store.get.assert_not_called()
+680-
+681:    def test_special_key_ignored(self, mock_context_with_mark):
+682-        """Non-escape special keys are ignored."""
+683-        ctx = mock_context_with_mark
+--
+694-# =============================================================================
+695-
+696:@pytest.fixture
+697-def mock_context_for_history(mock_store, mock_teller):
+698-    """Create context with state for history mode."""
+--
+724-    """Test history mode handler."""
+725-
+726:    def test_escape_exits(self, mock_context_for_history):
+727-        """Escape clears state and exits."""
+728-        ctx = mock_context_for_history
+--
+733-        ctx.back.assert_called_once()
+734-
+735:    def test_up_navigates_previous(self, mock_context_for_history):
+736-        """Up arrow navigates to older entry."""
+737-        ctx = mock_context_for_history
+--
+743-        assert "middle" in ctx.teller.spoken[0]
+744-
+745:    def test_down_at_newest_announces_boundary(self, mock_context_for_history):
+746-        """Down at newest entry announces boundary."""
+747-        ctx = mock_context_for_history
+--
+753-        assert "newest" in ctx.teller.spoken[0].lower()
+754-
+755:    def test_ctrl_p_navigates_previous(self, mock_context_for_history):
+756-        """Ctrl+P navigates to older entry."""
+757-        ctx = mock_context_for_history
+--
+762-        assert ctx._state["current_index"] == 1
+763-
+764:    def test_ctrl_n_navigates_next(self, mock_context_for_history):
+765-        """Ctrl+N navigates to newer entry."""
+766-        ctx = mock_context_for_history
+--
+772-        assert ctx._state["current_index"] == 0
+773-
+774:    def test_delete_marks_entry_deleted(self, mock_context_for_history):
+775-        """Delete key soft-deletes current entry."""
+776-        ctx = mock_context_for_history
+--
+783-        assert ctx._state["entries"][0]["deleted"] == 1
+784-
+785:    def test_delete_already_deleted_announces(self, mock_context_for_history):
+786-        """Delete on already-deleted entry announces it."""
+787-        ctx = mock_context_for_history
+--
+793-        assert "already deleted" in ctx.teller.spoken[0].lower()
+794-
+795:    def test_ctrl_c_copies_to_clipboard(self, mock_context_for_history, monkeypatch):
+796-        """Ctrl+C copies current entry to clipboard."""
+797-        copied = []
+--
+806-        assert "Copied" in ctx.teller.spoken[0]
+807-
+808:    def test_ctrl_t_reads_timestamp(self, mock_context_for_history):
+809-        """Ctrl+T reads timestamp of current entry."""
+810-        ctx = mock_context_for_history
+--
+815-        assert "2025-01-01" in ctx.teller.spoken[0]
+816-
+817:    def test_regular_char_exits(self, mock_context_for_history):
+818-        """Regular character exits history mode."""
+819-        ctx = mock_context_for_history
+--
+824-        ctx.back.assert_called_once()
+825-
+826:    def test_global_mode_formatting(self, mock_context_for_history):
+827-        """Global mode includes buffer/key in output."""
+828-        ctx = mock_context_for_history
+--
+843-# =============================================================================
+844-
+845:@pytest.fixture
+846-def mock_context_for_list(mock_store, mock_teller):
+847-    """Create context with state for list mode."""
+--
+874-    """Test list mode handler."""
+875-
+876:    def test_escape_exits(self, mock_context_for_list):
+877-        """Escape exits list mode."""
+878-        ctx = mock_context_for_list
+--
+883-        ctx.back.assert_called_once()
+884-
+885:    def test_backspace_exits(self, mock_context_for_list):
+886-        """Backspace exits list mode."""
+887-        ctx = mock_context_for_list
+--
+892-        ctx.back.assert_called_once()
+893-
+894:    def test_up_moves_toward_item_1(self, mock_context_for_list):
+895-        """Up arrow moves toward item 1 (lower internal index = older)."""
+896-        ctx = mock_context_for_list
+--
+903-        assert ctx._state["current_index"] == 0
+904-
+905:    def test_down_moves_away_from_item_1(self, mock_context_for_list):
+906-        """Down arrow moves away from item 1 (higher internal index = newer)."""
+907-        ctx = mock_context_for_list
+--
+913-        assert ctx._state["current_index"] == 1
+914-
+915:    def test_j_moves_next(self, mock_context_for_list):
+916-        """'j' key moves to next item (toward higher numbers = newer)."""
+917-        ctx = mock_context_for_list
+--
+923-        assert ctx._state["current_index"] == 1
+924-
+925:    def test_k_moves_previous(self, mock_context_for_list):
+926-        """'k' key moves to previous item (toward lower numbers = older)."""
+927-        ctx = mock_context_for_list
+--
+933-        assert ctx._state["current_index"] == 0
+934-
+935:    def test_comma_jumps_to_top(self, mock_context_for_list):
+936-        """Comma jumps to item 1 (oldest = internal index 0)."""
+937-        ctx = mock_context_for_list
+--
+943-        assert ctx._state["current_index"] == 0  # Now at item 1
+944-
+945:    def test_period_jumps_to_end(self, mock_context_for_list):
+946-        """Period jumps to last item (newest = highest internal index)."""
+947-        ctx = mock_context_for_list
+--
+953-        assert ctx._state["current_index"] == 2  # Now at newest
+954-
+955:    def test_enter_reads_current_item(self, mock_context_for_list):
+956-        """Enter reads current item."""
+957-        ctx = mock_context_for_list
+--
+964-        assert "oldest" in ctx.teller.spoken[0]
+965-
+966:    def test_delete_removes_item(self, mock_context_for_list):
+967-        """Delete removes current item."""
+968-        ctx = mock_context_for_list
+--
+976-        assert "Deleted" in ctx.teller.spoken[0]
+977-
+978:    def test_a_appends_from_clipboard(self, mock_context_for_list, monkeypatch):
+979-        """'a' appends clipboard content to list."""
+980-        monkeypatch.setattr("pyperclip.paste", lambda: "new item")
+--
+995-        assert "Added" in ctx.teller.spoken[0]
+996-
+997:    def test_a_empty_clipboard_announces(self, mock_context_for_list, monkeypatch):
+998-        """'a' with empty clipboard announces error."""
+999-        monkeypatch.setattr("pyperclip.paste", lambda: "")
+--
+1006-        assert "empty" in ctx.teller.spoken[0].lower()
+1007-
+1008:    def test_help_shows_commands(self, mock_context_for_list):
+1009-        """'?' shows help."""
+1010-        ctx = mock_context_for_list
+--
+1015-        assert "add" in ctx.teller.spoken[0].lower()
+1016-
+1017:    def test_ctrl_p_moves_toward_item_1(self, mock_context_for_list):
+1018-        """Ctrl+P moves toward item 1 (lower internal index = older)."""
+1019-        ctx = mock_context_for_list
+--
+1025-        assert ctx._state["current_index"] == 0
+1026-
+1027:    def test_ctrl_n_moves_away_from_item_1(self, mock_context_for_list):
+1028-        """Ctrl+N moves away from item 1 (higher internal index = newer)."""
+1029-        ctx = mock_context_for_list
+--
+1040-# =============================================================================
+1041-
+1042:@pytest.fixture
+1043-def mock_context_for_read(mock_store, mock_teller):
+1044-    """Create context for read mode with mark."""
+--
+1064-    """Test read mode handler."""
+1065-
+1066:    def test_backspace_goes_back(self, mock_context_for_read):
+1067-        """Backspace navigates back."""
+1068-        ctx = mock_context_for_read
+--
+1074-        assert "Back" in ctx.teller.spoken[0]
+1075-
+1076:    def test_backspace_at_root_announces(self, mock_context_for_read):
+1077-        """Backspace at root announces it."""
+1078-        ctx = mock_context_for_read
+--
+1084-        assert "root" in ctx.teller.spoken[0].lower()
+1085-
+1086:    def test_delete_no_selection_announces(self, mock_context_for_read):
+1087-        """Delete with no selection announces error."""
+1088-        ctx = mock_context_for_read
+--
+1094-        assert "No register" in ctx.teller.spoken[0]
+1095-
+1096:    def test_delete_removes_entry(self, mock_context_for_read):
+1097-        """Delete soft-deletes the last retrieved entry."""
+1098-        ctx = mock_context_for_read
+--
+1107-        assert "Deleted" in ctx.teller.spoken[0]
+1108-
+1109:    def test_first_press_reads_value(self, mock_context_for_read):
+1110-        """First press of key reads the value."""
+1111-        ctx = mock_context_for_read
+--
+1117-        assert "hello world" in ctx.teller.spoken[0]
+1118-
+1119:    def test_no_data_announces(self, mock_context_for_read):
+1120-        """No data at key announces it."""
+1121-        ctx = mock_context_for_read
+--
+1127-        assert "No data" in ctx.teller.spoken[0]
+1128-
+1129:    def test_second_press_copies(self, mock_context_for_read, monkeypatch):
+1130-        """Second press copies value."""
+1131-        copied = []
+--
+1143-        assert "Copied" in ctx.teller.spoken[0]
+1144-
+1145:    def test_ctrl_o_switches_to_options(self, mock_context_for_read):
+1146-        """Ctrl+O switches to options mode."""
+1147-        ctx = mock_context_for_read
+--
+1152-        ctx.switch.assert_called_once_with("options")
+1153-
+1154:    def test_ctrl_j_reads_clipboard(self, mock_context_for_read, monkeypatch):
+1155-        """Ctrl+J reads clipboard."""
+1156-        monkeypatch.setattr("pyperclip.paste", lambda: "clipboard content")
+--
+1163-        assert "clipboard content" in ctx.teller.spoken[0]
+1164-
+1165:    def test_ctrl_c_copies_last_value(self, mock_context_for_read, monkeypatch):
+1166-        """Ctrl+C copies last retrieved value."""
+1167-        copied = []
+--
+1177-        assert "saved value" in copied
+1178-
+1179:    def test_ctrl_y_writes_clipboard(self, mock_context_for_read, monkeypatch):
+1180-        """Ctrl+Y writes clipboard to last key."""
+1181-        monkeypatch.setattr("pyperclip.paste", lambda: "pasted")
+--
+1191-        assert "Wrote" in ctx.teller.spoken[0]
+1192-
+1193:    def test_buffer_entry_calls_into(self, mock_context_for_read):
+1194-        """Pressing key that is a buffer enters it."""
+1195-        ctx = mock_context_for_read
+--
+1202-        assert "Entering" in ctx.teller.spoken[0]
+1203-
+1204:    def test_list_first_press_announces(self, mock_context_for_read):
+1205-        """First press on list announces info."""
+1206-        ctx = mock_context_for_read
+--
+1213-        assert "List with 2 items" in ctx.teller.spoken[0]
+1214-
+1215:    def test_list_second_press_enters_mode(self, mock_context_for_read):
+1216-        """Second press on list enters list mode."""
+1217-        ctx = mock_context_for_read
+--
+1225-        ctx.switch.assert_called_with("list")
+1226-
+1227:    def test_non_alnum_ignored(self, mock_context_for_read):
+1228-        """Non-alphanumeric keys are ignored."""
+1229-        ctx = mock_context_for_read
+--
+1234-        ctx.store.get.assert_not_called()
+1235-
+1236:    def test_ctrl_g_creates_buffer(self, mock_context_for_read):
+1237-        """Ctrl+G creates buffer at last key."""
+1238-        ctx = mock_context_for_read
+--
+1248-        assert "Created buffer" in ctx.teller.spoken[0]
+1249-
+1250:    def test_auto_action_opens_url(self, mock_context_for_read, monkeypatch):
+1251-        """Auto action opens URLs."""
+1252-        opened = []
+
+docs/tome_phase2_dataflow_hotspots.md
+302-
+303-**From test files observed:**
+304:- test_handlers.py (42KB) - likely covers main flows
+305:- test_store.py (27KB) - likely covers DB operations
+306:- test_mode.py (32KB) - likely covers mode switching
+307-
+308-**What's probably NOT tested:**
+
+mark/test_gremlin_attacks.py
+1-"""Gremlin attacks on Mark RSP - exploiting assumptions the tests missed."""
+2-
+3:import pytest
+4-
+5-
+--
+11-    """What if store.get() has side effects?"""
+12-
+13:    def test_get_mutates_mark_during_path_traversal(self):
+14-        """BROKE: path() vulnerable to store that mutates mark during traversal."""
+15-        class MutatingStore:
+--
+45-        print(f"Final buffer_id: {m.buffer_id}")
+46-
+47:    def test_get_raises_exception_mid_traversal(self):
+48-        """BROKE: path() doesn't handle store.get() raising exceptions."""
+49-        class ExplodingStore:
+--
+61-        
+62-        # BROKE: No exception handling in path()
+63:        with pytest.raises(RuntimeError):
+64-            _ = m.path
+65-
+66:    def test_get_sleeps_forever(self):
+67-        """BROKE: path() blocks if store.get() sleeps."""
+68-        import time
+--
+79-        # This test would hang - commented out for safety
+80-        # path = m.path
+81:        pytest.skip("Would hang - store.get() has no timeout")
+82-
+83-
+--
+89-    """What if buffer_id points to itself or get() returns different results?"""
+90-
+91:    def test_buffer_points_to_itself(self):
+92-        """BROKE: What if buffer_id field points to the entry's own id?"""
+93-        class SelfRefStore:
+--
+108-        # HOW IT HURTS: Handled correctly by visited set, but what about...
+109-
+110:    def test_get_returns_different_results_each_call(self):
+111-        """FIXED: Non-deterministic store triggers max iteration limit."""
+112-        class FlickeringStore:
+--
+126-
+127-        # FIXED: path() now detects infinite loops and raises RuntimeError
+128:        with pytest.raises(RuntimeError, match="Path traversal exceeded 100000 iterations"):
+129-            _ = m.path
+130-
+131:    def test_infinite_chain_with_large_buffer_ids(self):
+132-        """BROKE: What if chain goes to 2^63 before terminating?"""
+133-        class InfiniteStore:
+--
+155-    """back() validates stack items, but only when popped. Can we poison it?"""
+156-
+157:    def test_poison_stack_with_non_int_values(self):
+158-        """BROKE: Directly mutate stack with non-int, back() only checks on pop."""
+159-        from mark import Mark
+--
+176-        # Stack now contains: [1, 2, "evil", None, {"attack": True}]
+177-        # FIXED: back() validates when popping and raises TypeError
+178:        with pytest.raises(TypeError, match="buffer_id must be int"):
+179-            m.back()  # Pops {"attack": True}, raises TypeError immediately
+180-
+181:    def test_poisoned_stack_survives_until_pop(self):
+182-        """FIXED: Poisoned stack entries survive until popped, then raise."""
+183-        from mark import Mark
+--
+207-        # Now we'll hit the poison
+208-        # FIXED: back() validates and raises TypeError on poison
+209:        with pytest.raises(TypeError, match="buffer_id must be int"):
+210-            m.back()  # Tries to pop "bottom-poison"
+211-
+--
+218-    """What if store is None or doesn't have get()?"""
+219-
+220:    def test_store_is_none(self):
+221-        """BROKE: No validation that store is not None."""
+222-        from mark import Mark
+--
+226-        
+227-        # Accessing path will crash
+228:        with pytest.raises(AttributeError):
+229-            _ = m.path  # NoneType has no get()
+230-
+231:    def test_store_missing_get_method(self):
+232-        """BROKE: No validation that store has get() method."""
+233-        from mark import Mark
+--
+239-        
+240-        # Accessing path will crash
+241:        with pytest.raises(AttributeError):
+242-            _ = m.path  # BrokenStore has no get()
+243-
+244:    def test_store_get_not_callable(self):
+245-        """BROKE: What if store.get is not callable?"""
+246-        from mark import Mark
+--
+251-        m = Mark(store=WeirdStore(), buffer_id=5)
+252-        
+253:        with pytest.raises(TypeError):
+254-            _ = m.path  # Can't call a string
+255-
+--
+262-    """path() uses entry.get('buffer_id') which can return weird values."""
+263-
+264:    def test_buffer_id_zero(self):
+265-        """BROKE: What if parent buffer_id is 0?"""
+266-        class ZeroStore:
+--
+287-        assert 'child' in path
+288-
+289:    def test_buffer_id_negative(self):
+290-        """BROKE: What if buffer_id is negative?"""
+291-        class NegativeStore:
+--
+307-        assert len(path) == 2
+308-
+309:    def test_buffer_id_max_int(self):
+310-        """BROKE: What if buffer_id is 2^63?"""
+311-        class MaxIntStore:
+--
+335-    """No bounds on stack size - what happens with huge stacks?"""
+336-
+337:    def test_massive_stack(self):
+338-        """BROKE: Stack can grow to arbitrary size."""
+339-        from mark import Mark
+--
+356-        assert len(m.stack) == 99999
+357-
+358:    def test_stack_memory_exhaustion(self):
+359-        """BROKE: Can we exhaust memory with stack?"""
+360-        from mark import Mark
+--
+371-        #     m.into(i + 2)
+372-        
+373:        pytest.skip("Would exhaust memory - no stack size bounds")
+374-
+375-
+--
+381-    """last_retrieved is Any - what breaks?"""
+382-
+383:    def test_last_retrieved_with_raising_getattribute(self):
+384-        """BROKE: Object that raises on attribute access."""
+385-        class EvilObject:
+--
+397-        
+398-        # Can't access anything on it
+399:        with pytest.raises(RuntimeError):
+400-            _ = m.last_retrieved.id  # Any attribute access raises
+401-
+402:    def test_last_retrieved_with_raising_repr(self):
+403-        """BROKE: Object that raises on repr()."""
+404-        class NoReprObject:
+--
+417-        
+418-        # Can store it, but can't print mark or debug
+419:        with pytest.raises(ValueError):
+420-            repr(m.last_retrieved)
+421-
+422:    def test_last_retrieved_memory_leak(self):
+423-        """BROKE: Circular reference causes memory leak?"""
+424-        from mark import Mark
+
+store/test_store_oracle.py
+4-"""
+5-
+6:import pytest
+7-from hypothesis import given, strategies as st, assume, settings, HealthCheck
+8-import tempfile
+--
+21-    from store import Store
+22-    import uuid
+23:    db_path = Path(tempfile.gettempdir()) / f"test_lore_{uuid.uuid4().hex}.db"
+24-    return Store(db_path)
+25-
+26-
+27:@pytest.fixture
+28-def store_factory():
+29-    """Factory for creating Store instances."""
+--
+46-    @given(key=keys, value=values)
+47-    @property_settings
+48:    def test_set_then_get_returns_value(self, store_factory, key, value):
+49-        """After set(k, v), get(k) returns v."""
+50-        store = store_factory()
+--
+56-    @given(key=keys, values_list=st.lists(values, min_size=2, max_size=10))
+57-    @property_settings
+58:    def test_get_returns_newest(self, store_factory, key, values_list):
+59-        """get() returns the most recently set value."""
+60-        store = store_factory()
+--
+66-    @given(key=keys, value=values, label=labels)
+67-    @property_settings
+68:    def test_set_preserves_label(self, store_factory, key, value, label):
+69-        """Label set is the label retrieved."""
+70-        store = store_factory()
+--
+75-    @given(key1=keys, key2=keys, value1=values, value2=values)
+76-    @property_settings
+77:    def test_different_keys_independent(self, store_factory, key1, key2, value1, value2):
+78-        """Different keys store independent values."""
+79-        assume(key1 != key2)
+--
+94-    @given(key=keys, value=values)
+95-    @property_settings
+96:    def test_delete_makes_invisible(self, store_factory, key, value):
+97-        """After delete, get returns None."""
+98-        store = store_factory()
+--
+103-    @given(key=keys, value=values)
+104-    @property_settings
+105:    def test_restore_makes_visible(self, store_factory, key, value):
+106-        """After restore, get returns the value."""
+107-        store = store_factory()
+--
+114-    @given(key=keys, value=values)
+115-    @property_settings
+116:    def test_delete_preserves_in_history(self, store_factory, key, value):
+117-        """Deleted items appear in history with include_deleted."""
+118-        store = store_factory()
+--
+134-    @given(key=keys, values_list=st.lists(values, min_size=1, max_size=20))
+135-    @property_settings
+136:    def test_history_length_matches_sets(self, store_factory, key, values_list):
+137-        """History length equals number of sets."""
+138-        store = store_factory()
+--
+144-    @given(key=keys, values_list=st.lists(values, min_size=1, max_size=10))
+145-    @property_settings
+146:    def test_history_ordered_newest_first(self, store_factory, key, values_list):
+147-        """History is ordered newest first."""
+148-        store = store_factory()
+--
+163-    @given(key=keys)
+164-    @property_settings
+165:    def test_create_buffer_makes_is_buffer_true(self, store_factory, key):
+166-        """After create_buffer, is_buffer returns True."""
+167-        store = store_factory()
+--
+171-    @given(key=keys, value=values)
+172-    @property_settings
+173:    def test_value_is_not_buffer(self, store_factory, key, value):
+174-        """A value entry is not a buffer."""
+175-        store = store_factory()
+--
+179-    @given(buffer_keys=st.lists(keys, min_size=2, max_size=5, unique=True))
+180-    @property_settings
+181:    def test_buffer_ids_unique(self, store_factory, buffer_keys):
+182-        """Each buffer gets a unique ID."""
+183-        store = store_factory()
+--
+187-    @given(key=keys)
+188-    @property_settings
+189:    def test_enter_buffer_returns_create_id(self, store_factory, key):
+190-        """enter_buffer returns the ID from create_buffer."""
+191-        store = store_factory()
+--
+204-    @given(key=keys)
+205-    @property_settings
+206:    def test_create_list_makes_is_list_true(self, store_factory, key):
+207-        """After create_list, is_list returns True."""
+208-        store = store_factory()
+--
+212-    @given(key=keys, items=st.lists(values, min_size=0, max_size=20))
+213-    @property_settings
+214:    def test_list_items_count_matches_appends(self, store_factory, key, items):
+215-        """List item count equals number of appends."""
+216-        store = store_factory()
+--
+223-    @given(key=keys, items=st.lists(values, min_size=1, max_size=10))
+224-    @property_settings
+225:    def test_list_items_ordered_by_append(self, store_factory, key, items):
+226-        """List items are in append order."""
+227-        store = store_factory()
+--
+235-    @given(key=keys, items=st.lists(values, min_size=1, max_size=10))
+236-    @property_settings
+237:    def test_list_item_indices_sequential(self, store_factory, key, items):
+238-        """List item indices are 0, 1, 2, ..."""
+239-        store = store_factory()
+--
+255-    @given(entries=st.lists(st.tuples(keys, values), min_size=1, max_size=10, unique_by=lambda x: x[0]))
+256-    @property_settings
+257:    def test_children_includes_all_set_keys(self, store_factory, entries):
+258-        """Children includes all keys that were set."""
+259-        store = store_factory()
+--
+267-    @given(key=keys, value=values)
+268-    @property_settings
+269:    def test_deleted_not_in_children(self, store_factory, key, value):
+270-        """Deleted entries don't appear in children."""
+271-        store = store_factory()
+--
+286-    @given(key=keys, value=values)
+287-    @property_settings
+288:    def test_buffer_and_value_coexist(self, store_factory, key, value):
+289-        """A key can have both a buffer and a value (different entries)."""
+290-        store = store_factory()
+--
+300-    @given(key=keys, old_value=values, new_value=values)
+301-    @property_settings
+302:    def test_list_conversion_preserves_original(self, store_factory, key, old_value, new_value):
+303-        """Converting a value to a list preserves the original value."""
+304-        store = store_factory()
+--
+312-    @given(key=keys, value=values)
+313-    @property_settings
+314:    def test_entry_ids_are_positive(self, store_factory, key, value):
+315-        """All entry IDs are positive integers."""
+316-        store = store_factory()
+
+store/test_store.py
+5-"""
+6-
+7:import pytest
+8-import sqlite3
+9-import tempfile
+--
+16-# ============================================================================
+17-
+18:@pytest.fixture
+19-def db_path(tmp_path):
+20-    """Create a temporary database path."""
+21:    return tmp_path / "test_lore.db"
+22-
+23-
+24:@pytest.fixture
+25-def store(db_path):
+26-    """Create a fresh Store instance with test database."""
+--
+37-    """Test basic get operations."""
+38-
+39:    def test_get_nonexistent_key_returns_none(self, store):
+40-        """Getting a key that doesn't exist returns None."""
+41-        assert store.get("nonexistent") is None
+42-
+43:    def test_get_after_set_returns_value(self, store):
+44-        """Can get a value that was set."""
+45-        store.set("a", "hello")
+--
+49-        assert entry["key"] == "a"
+50-
+51:    def test_get_returns_newest_when_multiple_values(self, store):
+52-        """When multiple values exist at same key, get returns newest."""
+53-        store.set("a", "first")
+--
+57-        assert entry["value"] == "third"
+58-
+59:    def test_get_with_explicit_buffer_id(self, store):
+60-        """Can get from a specific buffer."""
+61-        store.set("a", "in root", buffer_id=1)
+--
+63-        assert entry["value"] == "in root"
+64-
+65:    def test_get_from_wrong_buffer_returns_none(self, store):
+66-        """Getting from wrong buffer returns None."""
+67-        store.set("a", "in root", buffer_id=1)
+--
+72-    """Test basic set operations."""
+73-
+74:    def test_set_returns_entry(self, store):
+75-        """Set returns the created entry."""
+76-        entry = store.set("a", "hello")
+--
+80-        assert "id" in entry
+81-
+82:    def test_set_with_label(self, store):
+83-        """Can set a value with a label."""
+84-        entry = store.set("a", "hello", label="greeting")
+85-        assert entry["label"] == "greeting"
+86-
+87:    def test_set_in_specific_buffer(self, store):
+88-        """Can set in a specific buffer."""
+89-        entry = store.set("a", "hello", buffer_id=1)
+90-        assert entry["buffer_id"] == 1
+91-
+92:    def test_set_creates_timestamp(self, store):
+93-        """Set creates a datetime timestamp."""
+94-        entry = store.set("a", "hello")
+95-        assert entry["datetime"] is not None
+96-
+97:    def test_set_defaults_to_not_deleted(self, store):
+98-        """New entries are not deleted."""
+99-        entry = store.set("a", "hello")
+--
+104-    """Test basic delete operations."""
+105-
+106:    def test_delete_existing_returns_true(self, store):
+107-        """Deleting an existing entry returns True."""
+108-        store.set("a", "hello")
+109-        assert store.delete("a") is True
+110-
+111:    def test_delete_nonexistent_returns_false(self, store):
+112-        """Deleting a nonexistent entry returns False."""
+113-        assert store.delete("nonexistent") is False
+114-
+115:    def test_deleted_entry_not_returned_by_get(self, store):
+116-        """Deleted entries are not returned by get."""
+117-        store.set("a", "hello")
+--
+119-        assert store.get("a") is None
+120-
+121:    def test_delete_is_soft_by_default(self, store):
+122-        """Delete is soft - entry still exists with deleted flag."""
+123-        entry = store.set("a", "hello")
+--
+132-    """Test history retrieval."""
+133-
+134:    def test_history_returns_all_values_at_key(self, store):
+135-        """History returns all values ever stored at a key."""
+136-        store.set("a", "first")
+--
+143-        assert history[2]["value"] == "first"
+144-
+145:    def test_history_excludes_deleted_by_default(self, store):
+146-        """History excludes deleted entries by default."""
+147-        store.set("a", "first")
+--
+152-        assert history[0]["value"] == "first"
+153-
+154:    def test_history_includes_deleted_when_requested(self, store):
+155-        """History can include deleted entries."""
+156-        store.set("a", "first")
+--
+160-        assert len(history) == 2
+161-
+162:    def test_history_empty_for_nonexistent_key(self, store):
+163-        """History returns empty list for nonexistent key."""
+164-        assert store.history("nonexistent") == []
+--
+168-    """Test children listing."""
+169-
+170:    def test_children_returns_entries_in_buffer(self, store):
+171-        """Children returns all entries in a buffer."""
+172-        store.set("a", "value_a")
+--
+179-        assert "c" in keys
+180-
+181:    def test_children_excludes_deleted(self, store):
+182-        """Children excludes deleted entries."""
+183-        store.set("a", "value_a")
+--
+189-        assert "b" not in keys
+190-
+191:    def test_children_specific_buffer(self, store):
+192-        """Can list children of specific buffer."""
+193-        # Create a nested buffer and add items to it
+--
+213-    """Test buffer detection."""
+214-
+215:    def test_is_buffer_false_for_value(self, store):
+216-        """Regular values are not buffers."""
+217-        store.set("a", "hello")
+218-        assert store.is_buffer("a") is False
+219-
+220:    def test_is_buffer_true_for_buffer(self, store):
+221-        """Created buffers are buffers."""
+222-        store.create_buffer("sub")
+223-        assert store.is_buffer("sub") is True
+224-
+225:    def test_is_buffer_false_for_nonexistent(self, store):
+226-        """Nonexistent keys are not buffers."""
+227-        assert store.is_buffer("nonexistent") is False
+--
+231-    """Test buffer creation."""
+232-
+233:    def test_create_buffer_returns_new_id(self, store):
+234-        """Creating a buffer returns its new ID."""
+235-        buffer_id = store.create_buffer("sub")
+--
+237-        assert buffer_id > 1  # Root buffer is 1
+238-
+239:    def test_create_buffer_makes_key_a_buffer(self, store):
+240-        """After creation, key is recognized as buffer."""
+241-        store.create_buffer("sub")
+242-        assert store.is_buffer("sub") is True
+243-
+244:    def test_create_multiple_buffers_unique_ids(self, store):
+245-        """Each buffer gets a unique ID."""
+246-        id1 = store.create_buffer("a")
+--
+249-        assert len({id1, id2, id3}) == 3
+250-
+251:    def test_create_nested_buffer(self, store):
+252-        """Can create buffers inside buffers."""
+253-        outer_id = store.create_buffer("outer")
+--
+260-    """Test buffer deletion."""
+261-
+262:    def test_delete_buffer_returns_success(self, store):
+263-        """Deleting a buffer returns success tuple."""
+264-        buffer_id = store.create_buffer("sub")
+--
+266-        assert success is True
+267-
+268:    def test_delete_root_buffer_fails(self, store):
+269-        """Cannot delete root buffer (ID=1)."""
+270-        success, msg = store.delete_buffer(1)
+--
+272-        assert "root" in msg.lower()
+273-
+274:    def test_delete_buffer_removes_contents(self, store):
+275-        """Deleting a buffer removes its contents."""
+276-        buffer_id = store.create_buffer("sub")
+--
+279-        assert store.get("x", buffer_id=buffer_id) is None
+280-
+281:    def test_delete_buffer_recursive(self, store):
+282-        """Deleting a buffer deletes nested buffers."""
+283-        outer_id = store.create_buffer("outer")
+--
+290-        assert store.get("deep", buffer_id=inner_id) is None
+291-
+292:    def test_delete_nonexistent_buffer_fails(self, store):
+293-        """Deleting nonexistent buffer fails gracefully."""
+294-        success, msg = store.delete_buffer(99999)
+--
+299-    """Test buffer navigation."""
+300-
+301:    def test_enter_buffer_returns_buffer_id(self, store):
+302-        """Entering a buffer returns its ID."""
+303-        buffer_id = store.create_buffer("sub")
+--
+305-        assert entered_id == buffer_id
+306-
+307:    def test_enter_nonexistent_returns_none(self, store):
+308-        """Entering nonexistent buffer returns None."""
+309-        assert store.enter_buffer("nonexistent") is None
+310-
+311:    def test_enter_value_returns_none(self, store):
+312-        """Entering a value (not buffer) returns None."""
+313-        store.set("a", "hello")
+--
+322-    """Test list detection."""
+323-
+324:    def test_is_list_false_for_value(self, store):
+325-        """Regular values are not lists."""
+326-        store.set("a", "hello")
+327-        assert store.is_list("a") is False
+328-
+329:    def test_is_list_true_for_list(self, store):
+330-        """Created lists are lists."""
+331-        store.create_list("mylist")
+332-        assert store.is_list("mylist") is True
+333-
+334:    def test_is_list_false_for_buffer(self, store):
+335-        """Buffers are not lists."""
+336-        store.create_buffer("sub")
+--
+341-    """Test list creation."""
+342-
+343:    def test_create_list_returns_id(self, store):
+344-        """Creating a list returns its ID."""
+345-        list_id = store.create_list("mylist")
+346-        assert list_id is not None
+347-
+348:    def test_create_list_at_existing_value_converts(self, store):
+349-        """Creating list at existing value converts it."""
+350-        store.set("a", "original")
+--
+359-        assert items[0]["value"] == "original"
+360-
+361:    def test_create_list_empty_when_no_existing(self, store):
+362-        """Creating list at empty key creates empty list."""
+363-        list_id = store.create_list("newlist")
+--
+369-    """Test list item retrieval."""
+370-
+371:    def test_list_items_returns_ordered(self, store):
+372-        """List items are returned in order."""
+373-        list_id = store.create_list("mylist")
+--
+380-        assert values == ["first", "second", "third"]
+381-
+382:    def test_list_items_have_indices(self, store):
+383-        """List items have item_index."""
+384-        list_id = store.create_list("mylist")
+--
+390-        assert items[1]["item_index"] == 1
+391-
+392:    def test_list_items_excludes_deleted(self, store):
+393-        """Deleted list items are excluded."""
+394-        list_id = store.create_list("mylist")
+--
+408-    """Test list append operations."""
+409-
+410:    def test_append_returns_index(self, store):
+411-        """Appending returns the index of new item."""
+412-        list_id = store.create_list("mylist")
+--
+416-        assert idx1 == 1
+417-
+418:    def test_append_increases_list_size(self, store):
+419-        """Appending increases list size."""
+420-        list_id = store.create_list("mylist")
+--
+431-    """Test soft delete behavior."""
+432-
+433:    def test_soft_delete_sets_flag(self, store):
+434-        """Soft delete sets the deleted flag."""
+435-        entry = store.set("a", "hello")
+--
+439-        assert history[0]["deleted"] == 1
+440-
+441:    def test_soft_delete_preserves_data(self, store):
+442-        """Soft deleted data is preserved."""
+443-        store.set("a", "precious")
+--
+451-    """Test restore operations."""
+452-
+453:    def test_restore_undeletes_entry(self, store):
+454-        """Restore makes entry visible again."""
+455-        entry = store.set("a", "hello")
+--
+462-        assert store.get("a")["value"] == "hello"
+463-
+464:    def test_restore_nonexistent_fails(self, store):
+465-        """Restoring nonexistent entry fails."""
+466-        success, msg = store.restore(99999)
+467-        assert success is False
+468-
+469:    def test_restore_conflict_detection(self, store):
+470-        """Restore fails if active entry exists at same key."""
+471-        entry = store.set("a", "first")
+--
+477-        assert "conflict" in msg.lower()
+478-
+479:    def test_restore_already_active_entry(self, store):
+480-        """Restoring an already active entry is a no-op or clear success."""
+481-        entry = store.set("a", "hello")
+--
+492-    """Test edge cases and boundary conditions."""
+493-
+494:    def test_unicode_in_values(self, store):
+495-        """Unicode values work correctly."""
+496-        store.set("emoji", "Hello 🌍 World 你好")
+--
+498-        assert entry["value"] == "Hello 🌍 World 你好"
+499-
+500:    def test_unicode_in_labels(self, store):
+501-        """Unicode labels work correctly."""
+502-        store.set("a", "value", label="标签 📝")
+--
+504-        assert entry["label"] == "标签 📝"
+505-
+506:    def test_empty_string_value(self, store):
+507-        """Empty string is a valid value."""
+508-        store.set("a", "")
+--
+510-        assert entry["value"] == ""
+511-
+512:    def test_very_long_value(self, store):
+513-        """Very long values work."""
+514-        long_value = "x" * 100000
+--
+517-        assert entry["value"] == long_value
+518-
+519:    def test_special_characters_in_key(self, store):
+520-        """Special characters in keys work."""
+521-        # Keys are typically single chars but test edge cases
+--
+525-        assert store.get("@")["value"] == "at"
+526-
+527:    def test_none_buffer_id_uses_default(self, store):
+528-        """None buffer_id defaults to root buffer."""
+529-        store.set("a", "hello", buffer_id=None)
+--
+531-        assert entry is not None
+532-
+533:    def test_multiple_stores_same_key_same_buffer(self, store):
+534-        """Multiple stores at same key create multiple entries."""
+535-        store.set("a", "v1")
+--
+544-    """Test root buffer special handling."""
+545-
+546:    def test_root_buffer_exists(self, store):
+547-        """Root buffer (ID=1) exists after init."""
+548-        children = store.children(buffer_id=1)
+--
+550-        assert isinstance(children, list)
+551-
+552:    def test_cannot_delete_root_buffer(self, store):
+553-        """Root buffer cannot be deleted."""
+554-        success, msg = store.delete_buffer(1)
+--
+563-    """Test error handling."""
+564-
+565:    def test_get_with_none_key_raises(self, store):
+566-        """Getting with None key raises error."""
+567:        with pytest.raises((TypeError, ValueError)):
+568-            store.get(None)
+569-
+570:    def test_set_with_none_key_raises(self, store):
+571-        """Setting with None key raises error."""
+572:        with pytest.raises((TypeError, ValueError)):
+573-            store.set(None, "value")
+574-
+575:    def test_set_with_none_value_raises(self, store):
+576-        """Setting with None value raises error."""
+577:        with pytest.raises((TypeError, ValueError)):
+578-            store.set("a", None)
+579-
+580:    def test_delete_buffer_with_none_raises(self, store):
+581-        """Deleting buffer with None ID raises error."""
+582:        with pytest.raises((TypeError, ValueError)):
+583-            store.delete_buffer(None)
+584-
+585:    def test_list_items_invalid_id_returns_empty(self, store):
+586-        """List items for invalid ID returns empty list."""
+587-        items = store.list_items(99999)
+588-        assert items == []
+589-
+590:    def test_append_to_nonexistent_list_raises(self, store):
+591-        """Appending to nonexistent list raises error."""
+592:        with pytest.raises((ValueError, KeyError)):
+593-            store.append_to_list(99999, "value")
+594-
+--
+601-    """Test invariants that must always hold."""
+602-
+603:    def test_get_after_set_matches(self, store):
+604-        """get(key) after set(key, value) returns that value."""
+605-        store.set("test", "myvalue")
+606-        assert store.get("test")["value"] == "myvalue"
+607-
+608:    def test_delete_makes_invisible(self, store):
+609-        """After delete, get returns None."""
+610-        store.set("test", "value")
+--
+612-        assert store.get("test") is None
+613-
+614:    def test_restore_makes_visible(self, store):
+615-        """After restore, get returns the value."""
+616-        entry = store.set("test", "value")
+--
+619-        assert store.get("test") is not None
+620-
+621:    def test_buffer_ids_are_positive_integers(self, store):
+622-        """All buffer IDs are positive integers."""
+623-        id1 = store.create_buffer("a")
+--
+626-        assert isinstance(id2, int) and id2 > 0
+627-
+628:    def test_list_items_ordered_by_index(self, store):
+629-        """List items are always ordered by item_index."""
+630-        list_id = store.create_list("mylist")
+--
+644-    """Test config get operations."""
+645-
+646:    def test_get_nonexistent_returns_none(self, store):
+647-        """Getting a config key that doesn't exist returns None."""
+648-        assert store.get_config("nonexistent") is None
+649-
+650:    def test_get_nonexistent_returns_default(self, store):
+651-        """Getting nonexistent config returns provided default."""
+652-        assert store.get_config("nonexistent", "fallback") == "fallback"
+653-
+654:    def test_get_after_set_returns_value(self, store):
+655-        """Can get a config value that was set."""
+656-        store.set_config("debug", "on")
+657-        assert store.get_config("debug") == "on"
+658-
+659:    def test_get_ignores_default_when_value_exists(self, store):
+660-        """Default is ignored when value exists."""
+661-        store.set_config("debug", "on")
+--
+666-    """Test config set operations."""
+667-
+668:    def test_set_creates_new_config(self, store):
+669-        """Setting creates a new config entry."""
+670-        store.set_config("theme", "dark")
+671-        assert store.get_config("theme") == "dark"
+672-
+673:    def test_set_updates_existing_config(self, store):
+674-        """Setting an existing key updates it."""
+675-        store.set_config("theme", "dark")
+--
+677-        assert store.get_config("theme") == "light"
+678-
+679:    def test_set_with_description(self, store):
+680-        """Can set config with description."""
+681-        store.set_config("speed", "270", description="TTS speed in WPM")
+--
+683-        assert store.get_config("speed") == "270"
+684-
+685:    def test_set_preserves_description_on_update(self, store):
+686-        """Updating value without description preserves existing description."""
+687-        store.set_config("speed", "270", description="TTS speed in WPM")
+--
+691-        assert store.get_config("speed") == "300"
+692-
+693:    def test_set_can_override_description(self, store):
+694-        """Can explicitly update description."""
+695-        store.set_config("speed", "270", description="Old desc")
+--
+701-    """Test config edge cases."""
+702-
+703:    def test_config_empty_string_value(self, store):
+704-        """Empty string is a valid config value."""
+705-        store.set_config("empty", "")
+706-        assert store.get_config("empty") == ""
+707-
+708:    def test_config_unicode_value(self, store):
+709-        """Unicode values work in config."""
+710-        store.set_config("greeting", "Hello 你好 🌍")
+711-        assert store.get_config("greeting") == "Hello 你好 🌍"
+712-
+713:    def test_config_special_chars_in_key(self, store):
+714-        """Special characters in config keys work."""
+715-        store.set_config("app.setting.name", "value")
+716-        assert store.get_config("app.setting.name") == "value"
+717-
+718:    def test_config_isolated_from_lore(self, store):
+719-        """Config doesn't interfere with lore data."""
+720-        store.set_config("a", "config_value")
+--
+725-        assert store.get("a")["value"] == "lore_value"
+726-
+727:    def test_config_persists_across_connections(self, db_path):
+728-        """Config persists when store is reopened."""
+729-        from store import Store
+--
+741-    """Test config error handling."""
+742-
+743:    def test_get_config_with_none_key_raises(self, store):
+744-        """Getting config with None key raises TypeError."""
+745:        with pytest.raises(TypeError):
+746-            store.get_config(None)
+747-
+748:    def test_set_config_with_none_key_raises(self, store):
+749-        """Setting config with None key raises TypeError."""
+750:        with pytest.raises(TypeError):
+751-            store.set_config(None, "value")
+752-
+753:    def test_set_config_with_none_value_raises(self, store):
+754-        """Setting config with None value raises TypeError."""
+755:        with pytest.raises(TypeError):
+756-            store.set_config("key", None)
+
+store/test_store_gremlin.py
+4-"""
+5-
+6:import pytest
+7-import sqlite3
+8-import tempfile
+--
+11-
+12-
+13:@pytest.fixture
+14-def db_path(tmp_path):
+15-    """Create a temporary database path."""
+16:    return tmp_path / "test_lore.db"
+17-
+18-
+19:@pytest.fixture
+20-def store(db_path):
+21-    """Create a fresh Store instance with test database."""
+--
+34-    """
+35-
+36:    def test_get_with_integer_key(self, store):
+37-        """Integer key - SQLite coerces to string, finds no match."""
+38-        result = store.get(123)
+39-        assert result is None  # No match for "123"
+40-
+41:    def test_get_with_list_key(self, store):
+42-        """List as key - SQLite rejects unsupported type."""
+43:        with pytest.raises(sqlite3.ProgrammingError):
+44-            store.get(["a", "b"])
+45-
+46:    def test_get_with_dict_key(self, store):
+47-        """Dict as key - SQLite rejects unsupported type."""
+48:        with pytest.raises(sqlite3.ProgrammingError):
+49-            store.get({"key": "value"})
+50-
+51:    def test_set_with_integer_value(self, store):
+52-        """Integer value - SQLite coerces to string."""
+53-        entry = store.set("a", 123)
+--
+56-        assert entry["value"] == "123"
+57-
+58:    def test_set_with_bytes_value(self, store):
+59-        """Bytes value instead of string."""
+60-        try:
+--
+66-            pass
+67-
+68:    def test_buffer_id_as_string(self, store):
+69-        """String buffer_id - SQLite coerces to int if possible."""
+70-        store.set("a", "value", buffer_id=1)
+--
+76-        assert result2 is None  # No match
+77-
+78:    def test_buffer_id_as_float(self, store):
+79-        """Float buffer_id - SQLite does not match (no truncation in WHERE)."""
+80-        store.set("a", "value", buffer_id=1)
+--
+87-    """ATTACK: Invalid but syntactically correct inputs."""
+88-
+89:    def test_empty_key(self, store):
+90-        """Empty string as key."""
+91-        # Empty string is technically valid
+--
+93-        assert store.get("")["value"] == "value"
+94-
+95:    def test_whitespace_only_key(self, store):
+96-        """Whitespace-only key."""
+97-        entry = store.set("   ", "value")
+98-        assert store.get("   ")["value"] == "value"
+99-
+100:    def test_newline_in_key(self, store):
+101-        """Key with newlines."""
+102-        entry = store.set("line1\nline2", "value")
+103-        assert store.get("line1\nline2")["value"] == "value"
+104-
+105:    def test_null_byte_in_key(self, store):
+106-        """Key with null bytes."""
+107-        # Null bytes can cause issues with C-based libraries
+--
+113-            pass
+114-
+115:    def test_null_byte_in_value(self, store):
+116-        """Value with null bytes."""
+117-        try:
+--
+122-            pass
+123-
+124:    def test_very_long_key(self, store):
+125-        """Extremely long key."""
+126-        long_key = "x" * 10000
+--
+128-        assert store.get(long_key)["value"] == "value"
+129-
+130:    def test_negative_buffer_id(self, store):
+131-        """Negative buffer_id."""
+132-        # Should work (it's just a number) but find nothing
+--
+134-        assert result is None
+135-
+136:    def test_zero_buffer_id(self, store):
+137-        """Zero buffer_id."""
+138-        result = store.get("a", buffer_id=0)
+139-        assert result is None
+140-
+141:    def test_huge_buffer_id(self, store):
+142-        """Very large buffer_id."""
+143-        result = store.get("a", buffer_id=2**62)
+--
+148-    """ATTACK: Unicode edge cases and normalization."""
+149-
+150:    def test_emoji_key(self, store):
+151-        """Emoji as key."""
+152-        store.set("🔥", "fire")
+153-        assert store.get("🔥")["value"] == "fire"
+154-
+155:    def test_mixed_scripts(self, store):
+156-        """Mixed script characters."""
+157-        store.set("Hello世界مرحبا", "mixed")
+158-        assert store.get("Hello世界مرحبا")["value"] == "mixed"
+159-
+160:    def test_rtl_text(self, store):
+161-        """Right-to-left text."""
+162-        store.set("مفتاح", "قيمة")
+163-        assert store.get("مفتاح")["value"] == "قيمة"
+164-
+165:    def test_zalgo_text(self, store):
+166-        """Zalgo/combining characters."""
+167-        zalgo = "H̸̡̪̯ͨ͊̽̅̾ẹ̶̱̹͖͉̠̮̥̤͡c̨̫̤̩̥̖̤̪ͅo̢͚̦͍̻̰͠m̷̘̞͚͈̞̬̻̜e̳̩͟ͅs̸̤̱̣͕̼̰̱̬̗"
+--
+169-        assert store.get(zalgo)["value"] == "value"
+170-
+171:    def test_zero_width_chars(self, store):
+172-        """Zero-width characters."""
+173-        # Zero-width joiner and non-joiner
+--
+179-        assert store.get("ab") is None
+180-
+181:    def test_bom_in_value(self, store):
+182-        """Byte Order Mark in value."""
+183-        store.set("key", "\ufeffvalue")
+184-        assert store.get("key")["value"] == "\ufeffvalue"
+185-
+186:    def test_surrogate_pairs(self, store):
+187-        """Characters outside BMP (surrogate pairs in UTF-16)."""
+188-        # Mathematical symbols, emoji, etc.
+--
+194-    """ATTACK: SQL injection attempts."""
+195-
+196:    def test_sql_in_key(self, store):
+197-        """SQL injection in key."""
+198-        malicious = "'; DROP TABLE lore; --"
+--
+201-        assert store.get(malicious)["value"] == "value"
+202-
+203:    def test_sql_in_value(self, store):
+204-        """SQL injection in value."""
+205-        malicious = "value'; DROP TABLE lore; --"
+--
+207-        assert store.get("key")["value"] == malicious
+208-
+209:    def test_sql_in_label(self, store):
+210-        """SQL injection in label."""
+211-        malicious = "label'; DROP TABLE lore; --"
+--
+213-        assert store.get("key")["label"] == malicious
+214-
+215:    def test_format_string_attack(self, store):
+216-        """Format string characters."""
+217-        store.set("key", "%s %d %x")
+--
+222-    """ATTACK: Memory/resource exhaustion."""
+223-
+224:    def test_very_large_value(self, store):
+225-        """Value approaching memory limits."""
+226-        # 10MB value
+--
+229-        assert store.get("big")["value"] == large
+230-
+231:    def test_many_entries_same_key(self, store):
+232-        """Many entries at the same key."""
+233-        for i in range(1000):
+--
+236-        assert len(history) == 1000
+237-
+238:    def test_deeply_nested_buffers(self, store):
+239-        """Many levels of buffer nesting."""
+240-        current_buffer = 1
+--
+246-        assert store.get("deep", buffer_id=current_buffer)["value"] == "value"
+247-
+248:    def test_many_buffers(self, store):
+249-        """Many sibling buffers."""
+250-        for i in range(100):
+--
+258-    """ATTACK: Race conditions and concurrent access."""
+259-
+260:    def test_multiple_stores_read_own_writes(self, store, db_path):
+261-        """Multiple Store instances see each other's writes."""
+262-        from store import Store
+--
+273-    """ATTACK: Mutating returned data."""
+274-
+275:    def test_mutate_returned_entry(self, store):
+276-        """Modifying returned entry doesn't affect store."""
+277-        store.set("key", "original")
+--
+283-        assert fresh["value"] == "original"
+284-
+285:    def test_mutate_history_list(self, store):
+286-        """Modifying history list doesn't affect store."""
+287-        store.set("key", "v1")
+--
+298-    """ATTACK: Edge cases around deletion."""
+299-
+300:    def test_delete_already_deleted(self, store):
+301-        """Deleting already deleted entry."""
+302-        store.set("key", "value")
+--
+306-        assert result is False  # Nothing to delete
+307-
+308:    def test_restore_twice(self, store):
+309-        """Restoring an entry twice."""
+310-        entry = store.set("key", "value")
+--
+315-        assert success is True  # Already active, no-op
+316-
+317:    def test_delete_buffer_that_contains_buffers(self, store):
+318-        """Delete buffer with nested buffers inside."""
+319-        outer = store.create_buffer("outer")
+--
+331-    """ATTACK: Edge cases around lists."""
+332-
+333:    def test_append_to_deleted_list(self, store):
+334-        """Appending to a deleted list."""
+335-        list_id = store.create_list("mylist")
+--
+337-
+338-        # Appending to deleted list should probably fail
+339:        with pytest.raises((ValueError, KeyError)):
+340-            store.append_to_list(list_id, "value")
+341-
+342:    def test_list_items_of_value(self, store):
+343-        """Getting list items of a regular value's ID."""
+344-        entry = store.set("key", "value")
+--
+347-        assert items == []  # No items, not a list
+348-
+349:    def test_create_list_at_buffer(self, store):
+350-        """Creating a list at a key that's a buffer."""
+351-        store.create_buffer("mybuffer")
+
+mark/test_mark.py
+9-"""
+10-
+11:import pytest
+12-
+13-
+--
+16-# =============================================================================
+17-
+18:@pytest.fixture
+19-def mock_store():
+20-    """Mock store that resolves buffer_ids to names."""
+--
+33-
+34-
+35:@pytest.fixture
+36-def mark(mock_store):
+37-    """Fresh Mark at root with mock store."""
+--
+40-
+41-
+42:@pytest.fixture
+43-def mark_at_5(mock_store):
+44-    """Mark starting at buffer_id 5."""
+--
+54-    """Test Mark creation and defaults."""
+55-
+56:    def test_requires_store(self):
+57-        """Mark requires a store argument."""
+58-        from mark import Mark
+59:        with pytest.raises(TypeError):
+60-            Mark()  # Missing store
+61-
+62:    def test_default_buffer_id_is_root(self, mark):
+63-        """Default buffer_id is 1 (root)."""
+64-        assert mark.buffer_id == 1
+65-
+66:    def test_default_stack_is_empty(self, mark):
+67-        """Default stack is empty list."""
+68-        assert mark.stack == []
+69-
+70:    def test_default_last_retrieved_is_none(self, mark):
+71-        """Default last_retrieved is None."""
+72-        assert mark.last_retrieved is None
+73-
+74:    def test_custom_initial_buffer_id(self, mock_store):
+75-        """Can set initial buffer_id."""
+76-        from mark import Mark
+--
+78-        assert m.buffer_id == 5
+79-
+80:    def test_custom_initial_does_not_affect_stack(self, mock_store):
+81-        """Custom initial buffer_id doesn't add to stack."""
+82-        from mark import Mark
+--
+84-        assert m.stack == []
+85-
+86:    def test_stack_not_shared_between_instances(self, mock_store):
+87-        """Each Mark has its own stack."""
+88-        from mark import Mark
+--
+101-    """Test input validation."""
+102-
+103:    def test_buffer_id_must_be_int_on_construction(self, mock_store):
+104-        """buffer_id must be int at construction."""
+105-        from mark import Mark
+106:        with pytest.raises(TypeError, match="buffer_id must be int"):
+107-            Mark(store=mock_store, buffer_id="5")
+108-
+109:    def test_buffer_id_must_be_int_on_into(self, mark):
+110-        """into() requires int buffer_id."""
+111:        with pytest.raises(TypeError, match="buffer_id must be int"):
+112-            mark.into("5")
+113-
+114:    def test_buffer_id_none_rejected(self, mock_store):
+115-        """None is not a valid buffer_id."""
+116-        from mark import Mark
+117:        with pytest.raises(TypeError, match="buffer_id must be int"):
+118-            Mark(store=mock_store, buffer_id=None)
+119-
+120:    def test_buffer_id_dict_rejected(self, mark):
+121-        """Dict is not a valid buffer_id."""
+122:        with pytest.raises(TypeError, match="buffer_id must be int"):
+123-            mark.into({"id": 5})
+124-
+--
+131-    """Test into() - navigate into a buffer."""
+132-
+133:    def test_into_updates_buffer_id(self, mark):
+134-        """into() sets new buffer_id."""
+135-        mark.into(5)
+136-        assert mark.buffer_id == 5
+137-
+138:    def test_into_pushes_previous_to_stack(self, mark):
+139-        """into() pushes previous buffer_id to stack."""
+140-        mark.into(5)
+141-        assert mark.stack == [1]
+142-
+143:    def test_into_multiple_builds_stack(self, mark):
+144-        """Multiple into() calls build up stack."""
+145-        mark.into(5)
+--
+149-        assert mark.stack == [1, 5, 10]
+150-
+151:    def test_into_same_buffer_still_pushes(self, mark_at_5):
+152-        """into() same buffer_id still pushes to stack."""
+153-        mark_at_5.into(5)
+--
+155-        assert mark_at_5.stack == [5]
+156-
+157:    def test_into_returns_self(self, mark):
+158-        """into() returns self for chaining."""
+159-        result = mark.into(5)
+160-        assert result is mark
+161-
+162:    def test_into_chaining(self, mark):
+163-        """Can chain into() calls."""
+164-        mark.into(5).into(10).into(20)
+--
+166-        assert mark.stack == [1, 5, 10]
+167-
+168:    def test_into_preserves_stack_identity(self, mark):
+169-        """into() mutates existing stack list, doesn't replace."""
+170-        stack_before = mark.stack
+--
+180-    """Test back() - return to previous buffer."""
+181-
+182:    def test_back_pops_stack_to_current(self, mark):
+183-        """back() pops stack and sets as current."""
+184-        mark.into(5)
+--
+187-        assert mark.stack == []
+188-
+189:    def test_back_returns_true_on_success(self, mark):
+190-        """back() returns True when stack had items."""
+191-        mark.into(5)
+192-        assert mark.back() is True
+193-
+194:    def test_back_returns_false_when_empty(self, mark):
+195-        """back() returns False when stack is empty."""
+196-        assert mark.back() is False
+197-
+198:    def test_back_does_not_change_buffer_when_empty(self, mark_at_5):
+199-        """back() doesn't change buffer_id when stack empty."""
+200-        mark_at_5.back()
+201-        assert mark_at_5.buffer_id == 5
+202-
+203:    def test_back_is_idempotent_when_empty(self, mark_at_5):
+204-        """Repeated back() on empty stack is stable no-op."""
+205-        mark_at_5.back()
+--
+209-        assert mark_at_5.stack == []
+210-
+211:    def test_back_multiple_unwinds_stack(self, mark):
+212-        """Multiple back() calls unwind the stack."""
+213-        mark.into(5).into(10).into(20)
+--
+224-        assert mark.back() is False
+225-
+226:    def test_back_preserves_stack_identity(self, mark):
+227-        """back() mutates existing stack list, doesn't replace."""
+228-        mark.into(5)
+--
+239-    """Test reset() - return to root."""
+240-
+241:    def test_reset_clears_stack(self, mark):
+242-        """reset() empties the stack."""
+243-        mark.into(5).into(10).into(20)
+--
+245-        assert mark.stack == []
+246-
+247:    def test_reset_returns_to_root(self, mark):
+248-        """reset() sets buffer_id to 1 (root)."""
+249-        mark.into(5).into(10)
+--
+251-        assert mark.buffer_id == 1
+252-
+253:    def test_reset_from_root_is_noop(self, mark):
+254-        """reset() at root is harmless."""
+255-        mark.reset()
+--
+257-        assert mark.stack == []
+258-
+259:    def test_reset_returns_self(self, mark):
+260-        """reset() returns self for chaining."""
+261-        result = mark.reset()
+--
+270-    """Test navigation invariants."""
+271-
+272:    def test_full_unwind_returns_to_start(self, mock_store):
+273-        """After into chain then full back(), return to start."""
+274-        from mark import Mark
+--
+283-        assert m.stack == []
+284-
+285:    def test_back_then_into_pushes_current(self, mark):
+286-        """After back(), next into() pushes the new current."""
+287-        mark.into(2).into(3)  # stack=[1,2], current=3
+--
+292-        assert mark.stack == [1, 2]
+293-
+294:    def test_deep_navigation(self, mark):
+295-        """Can handle deep navigation stack."""
+296-        for i in range(100):
+--
+314-    """Test last_retrieved tracking."""
+315-
+316:    def test_set_last_retrieved(self, mark):
+317-        """Can set last_retrieved to an entry."""
+318-        entry = {'id': 1, 'content': 'hello'}
+--
+320-        assert mark.last_retrieved == entry
+321-
+322:    def test_last_retrieved_preserves_identity(self, mark):
+323-        """last_retrieved stores exact object, not copy."""
+324-        entry = {'id': 1, 'content': 'hello'}
+--
+326-        assert mark.last_retrieved is entry
+327-
+328:    def test_last_retrieved_persists_through_navigation(self, mark):
+329-        """last_retrieved unchanged by into/back."""
+330-        entry = {'id': 1, 'content': 'hello'}
+--
+334-        assert mark.last_retrieved is entry
+335-
+336:    def test_last_retrieved_persists_through_reset(self, mark):
+337-        """last_retrieved unchanged by reset."""
+338-        entry = {'id': 1}
+--
+342-        assert mark.last_retrieved is entry
+343-
+344:    def test_last_retrieved_can_be_cleared(self, mark):
+345-        """Can clear last_retrieved by setting to None."""
+346-        mark.last_retrieved = {'id': 1}
+--
+348-        assert mark.last_retrieved is None
+349-
+350:    def test_last_retrieved_accepts_any_type(self, mark):
+351-        """last_retrieved is opaque storage (Any)."""
+352-        sentinel = object()
+--
+362-    """Test path property - human-readable breadcrumb."""
+363-
+364:    def test_path_at_root(self, mark):
+365-        """Path at root shows root."""
+366-        # Exact format TBD, but should include root
+--
+369-        assert 'root' in path
+370-
+371:    def test_path_shows_breadcrumb(self, mark):
+372-        """Path shows navigation breadcrumb."""
+373-        mark.into(2)  # projects
+--
+379-        assert 'tome' in path
+380-
+381:    def test_path_order_is_root_to_current(self, mark):
+382-        """Path is ordered from root to current."""
+383-        mark.into(2).into(3)
+--
+390-        assert root_idx < projects_idx < tome_idx
+391-
+392:    def test_path_updates_after_back(self, mark):
+393-        """Path reflects current position after back()."""
+394-        mark.into(2).into(3)
+--
+399-        assert 'tome' not in path
+400-
+401:    def test_path_updates_after_reset(self, mark):
+402-        """Path reflects root after reset()."""
+403-        mark.into(2).into(3)
+--
+415-    """Test bool subclass of int edge cases."""
+416-
+417:    def test_construction_with_true(self, mock_store):
+418-        """True (1) is accepted as buffer_id."""
+419-        from mark import Mark
+--
+421-        assert m.buffer_id == 1
+422-
+423:    def test_construction_with_false(self, mock_store):
+424-        """False (0) is accepted as buffer_id."""
+425-        from mark import Mark
+--
+427-        assert m.buffer_id == 0
+428-
+429:    def test_into_with_true(self, mark):
+430-        """into(True) navigates to buffer_id 1."""
+431-        mark.into(True)
+--
+433-        assert mark.stack == [1]  # Pushed original 1
+434-
+435:    def test_into_with_false(self, mark):
+436-        """into(False) navigates to buffer_id 0."""
+437-        mark.into(False)
+--
+443-    """Test extreme numeric buffer_ids."""
+444-
+445:    def test_negative_buffer_id_construction(self, mock_store):
+446-        """Negative buffer_ids are accepted."""
+447-        from mark import Mark
+--
+449-        assert m.buffer_id == -1
+450-
+451:    def test_zero_buffer_id(self, mock_store):
+452-        """Zero buffer_id is accepted."""
+453-        from mark import Mark
+--
+455-        assert m.buffer_id == 0
+456-
+457:    def test_large_buffer_id(self, mock_store):
+458-        """Very large buffer_ids are accepted."""
+459-        from mark import Mark
+--
+462-        assert m.buffer_id == sys.maxsize
+463-
+464:    def test_into_negative(self, mark):
+465-        """Can navigate into negative buffer_id."""
+466-        mark.into(-5)
+467-        assert mark.buffer_id == -5
+468-
+469:    def test_into_very_large(self, mark):
+470-        """Can navigate into very large buffer_id."""
+471-        import sys
+--
+477-    """Test Mark with pathological Store implementations."""
+478-
+479:    def test_store_get_raises_exception(self, mark):
+480-        """path handles Store.get() raising exceptions."""
+481-        class ExplodingStore:
+--
+487-
+488-        # path() should handle the exception gracefully
+489:        with pytest.raises(RuntimeError):
+490-            _ = m.path
+491-
+492:    def test_store_get_returns_non_dict(self):
+493-        """path handles Store.get() returning non-dict."""
+494-        class BadStore:
+--
+500-
+501-        # Should handle gracefully - .get() on string will raise AttributeError
+502:        with pytest.raises(AttributeError):
+503-            _ = m.path
+504-
+505:    def test_store_get_returns_dict_without_content(self):
+506-        """path handles dict without 'content' key."""
+507-        class MinimalStore:
+--
+516-        assert path == ['buffer-5']
+517-
+518:    def test_store_get_returns_dict_without_buffer_id(self):
+519-        """path handles dict without 'buffer_id' key."""
+520-        class NoParentStore:
+--
+533-    """Test circular reference handling in path computation."""
+534-
+535:    def test_self_referencing_entry(self):
+536-        """path detects self-referencing entry."""
+537-        class CircularStore:
+--
+550-        assert len(path) == 1
+551-
+552:    def test_two_entry_cycle(self):
+553-        """path detects two-entry cycle."""
+554-        class TwoEntryCycle:
+--
+568-        assert len(path) <= 2  # Should terminate
+569-
+570:    def test_long_chain_with_eventual_cycle(self):
+571-        """path handles long chain that eventually cycles."""
+572-        class EventualCycle:
+--
+593-    """Test very deep navigation and hierarchies."""
+594-
+595:    def test_very_deep_navigation(self, mock_store):
+596-        """Can handle very deep navigation (10000 levels)."""
+597-        from mark import Mark
+--
+612-        assert m.stack == []
+613-
+614:    def test_very_deep_path_computation(self):
+615-        """path can handle very deep hierarchies."""
+616-        class DeepStore:
+--
+640-    """Test attacks on the exposed mutable stack property."""
+641-
+642:    def test_direct_stack_mutation_then_back(self, mark):
+643-        """Mutating stack externally breaks back()."""
+644-        mark.into(5)
+--
+648-        # Now back() will try to use the string as buffer_id
+649-        # Expected: TypeError when assigning non-int to buffer_id
+650:        with pytest.raises(TypeError):
+651-            mark.back()
+652-
+653:    def test_stack_cleared_externally(self, mark):
+654-        """External stack.clear() breaks navigation."""
+655-        mark.into(5).into(10)
+--
+660-        assert mark.buffer_id == 10  # Stuck at 10
+661-
+662:    def test_stack_replaced_with_non_list(self, mark):
+663-        """Replacing stack with non-list breaks into()."""
+664-        # This tests whether Mark validates stack type on mutation
+--
+675-    """Test __index__ protocol and int subclasses."""
+676-
+677:    def test_numpy_like_int64(self, mock_store):
+678-        """Custom __index__ object might bypass isinstance check."""
+679-        class FakeInt64:
+--
+688-        # isinstance(FakeInt64(5), int) returns False
+689-        # So this should raise TypeError
+690:        with pytest.raises(TypeError, match="buffer_id must be int"):
+691-            Mark(store=mock_store, buffer_id=FakeInt64(5))
+692-
+693:    def test_int_enum_accepted(self, mock_store):
+694-        """IntEnum IS a subclass of int - should be accepted."""
+695-        from enum import IntEnum
+--
+707-        assert m.buffer_id == 2
+708-
+709:    def test_into_with_int_subclass(self, mark):
+710-        """into() with int subclass should work."""
+711-        class MyInt(int):
+--
+720-    """Test malicious Store implementations that return invalid data."""
+721-
+722:    def test_store_returns_dict_with_non_int_buffer_id(self):
+723-        """Store returns dict with buffer_id as string."""
+724-        class MaliciousStore:
+--
+739-        assert 'data' in path
+740-
+741:    def test_store_returns_non_string_content(self):
+742-        """Store returns dict with content as dict instead of string."""
+743-        class HugeObjectStore:
+--
+756-        assert len(path) > 0
+757-
+758:    def test_store_returns_unhashable_buffer_id(self):
+759-        """Store returns list as buffer_id - breaks visited set."""
+760-        class UnhashableStore:
+--
+775-        
+776-        # visited.add(current_id) will fail if current_id is unhashable
+777:        with pytest.raises(TypeError):
+778-            _ = m.path
+779-
+--
+782-    """Test memory and performance attacks."""
+783-
+784:    def test_million_level_deep_path(self):
+785-        """Path with million-level depth causes OOM."""
+786-        class DeepStore:
+--
+799-        # Should either handle gracefully or run out of memory
+800-        # For now, testing if it completes (may be slow)
+801:        import pytest
+802:        pytest.skip("Skipping OOM test - takes too long")
+803-        # path = m.path
+804-        # assert len(path) == 1_000_000
+805-
+806:    def test_million_stack_pushes(self, mock_store):
+807-        """Pushing a million items to stack."""
+808-        from mark import Mark
+--
+810-        
+811-        # This tests unbounded stack growth
+812:        import pytest
+813:        pytest.skip("Skipping stack overflow test - takes too long")
+814-        # for i in range(1_000_000):
+815-        #     m.into(i + 2)
+--
+820-    """Test semantically valid but weird inputs."""
+821-
+822:    def test_float_that_equals_int(self, mock_store):
+823-        """3.0 == 3 in Python - does it work as buffer_id?"""
+824-        from mark import Mark
+825-        
+826-        # isinstance(3.0, int) is False, so this should fail
+827:        with pytest.raises(TypeError, match="buffer_id must be int"):
+828-            Mark(store=mock_store, buffer_id=3.0)
+829-
+830:    def test_object_with_malicious_eq(self):
+831-        """Object with __eq__ that always returns True."""
+832-        class AlwaysEqual:
+--
+860-    """Test unicode edge cases in content fields."""
+861-
+862:    def test_emoji_in_content(self):
+863-        """Content with emoji should appear in path."""
+864-        class EmojiStore:
+--
+877-        assert len(path) == 1
+878-
+879:    def test_rtl_text_in_content(self):
+880-        """Content with RTL (right-to-left) text."""
+881-        class RTLStore:
+--
+893-        assert 'العربية' in path
+894-
+895:    def test_zero_width_characters_in_content(self):
+896-        """Content with zero-width joiners and spaces."""
+897-        class ZeroWidthStore:
+--
+910-        assert 'hello\u200bworld\u200c' in path
+911-
+912:    def test_combining_characters_in_content(self):
+913-        """Content with combining diacritical marks."""
+914-        class CombiningStore:
+--
+926-        assert 'café' in path
+927-
+928:    def test_mixed_unicode_content(self):
+929-        """Content mixing emoji, RTL, combining chars."""
+930-        class MixedStore:
+--
+950-    """Test non-string content types in store entries."""
+951-
+952:    def test_numeric_content(self):
+953-        """Content field is a number instead of string."""
+954-        class NumericStore:
+--
+967-        assert 42 in path or '42' in path
+968-
+969:    def test_none_content(self):
+970-        """Content field is None."""
+971-        class NoneContentStore:
+--
+984-        assert 'buffer-5' in path or None in path
+985-
+986:    def test_list_content(self):
+987-        """Content field is a list."""
+988-        class ListStore:
+--
+1001-        assert ['item', 'list'] in path or "['item', 'list']" in path or 'buffer-5' in path
+1002-
+1003:    def test_dict_content(self):
+1004-        """Content field is a dict."""
+1005-        class DictStore:
+--
+1020-        assert isinstance(path[0], (dict, str))
+1021-
+1022:    def test_missing_content_key(self):
+1023-        """Store entry has no 'content' key at all."""
+1024-        class NoContentStore:
+--
+1041-    """Test mutating stack while iterating over it."""
+1042-
+1043:    def test_iterate_stack_while_pushing(self, mock_store):
+1044-        """Iterate over stack while calling into()."""
+1045-        from mark import Mark
+--
+1067-        assert 5 in results
+1068-
+1069:    def test_iterate_stack_while_popping(self, mock_store):
+1070-        """Iterate over stack while calling back()."""
+1071-        from mark import Mark
+--
+1086-        assert results == [1, 5, 10, 15]
+1087-
+1088:    def test_external_stack_clear_during_pathfinding(self):
+1089-        """Clear stack externally while path() is computing."""
+1090-        class TrickyStore:
+--
+1123-    """Test last_retrieved with problematic objects."""
+1124-
+1125:    def test_last_retrieved_with_circular_reference(self, mark):
+1126-        """last_retrieved object has circular reference to Mark."""
+1127-        entry = {'id': 1, 'content': 'data'}
+--
+1134-        assert mark.last_retrieved['mark_ref'] is mark
+1135-
+1136:    def test_last_retrieved_with_self_reference(self, mark):
+1137-        """last_retrieved object references itself."""
+1138-        entry = {'id': 1}
+--
+1144-        assert mark.last_retrieved['self'] is entry
+1145-
+1146:    def test_last_retrieved_large_object(self, mark):
+1147-        """last_retrieved with very large object."""
+1148-        # Create a large dict
+--
+1157-        assert len(mark.last_retrieved['data']) == 1_000_000
+1158-
+1159:    def test_last_retrieved_mutable_object_mutation(self, mark):
+1160-        """Mutating last_retrieved object externally."""
+1161-        entry = {'id': 1, 'content': 'original'}
+--
+1170-        assert mark.last_retrieved['new_field'] == 'added'
+1171-
+1172:    def test_last_retrieved_none_vs_unset(self, mark):
+1173-        """Explicitly setting None vs initial unset state."""
+1174-        # Initial state: unset (defaults to None)
+--
+1187-        assert mark.last_retrieved is None
+1188-
+1189:    def test_last_retrieved_with_slots_object(self, mark):
+1190-        """last_retrieved with __slots__ object (no __dict__)."""
+1191-        class SlotsEntry:
+--
+1202-        assert mark.last_retrieved.content == 'data'
+1203-
+1204:    def test_last_retrieved_with_lambda(self, mark):
+1205-        """last_retrieved with lambda function."""
+1206-        func = lambda x: x * 2
+
+mode/test_mode_oracle.py
+6-"""
+7-
+8:import pytest
+9-from mode import Mode, ModeContext, KeyEvent
+10-from dataclasses import dataclass
+--
+43-# ============================================================================
+44-
+45:def test_get_state_returns_wrong_mode_state_after_switch():
+46-    """
+47-    FAILS: get_state() returns wrong mode's state after handler calls switch().
+--
+96-
+97-
+98:def test_get_state_cross_contamination():
+99-    """
+100-    FAILS: Handler can accidentally modify wrong mode's state after switch.
+--
+145-# ============================================================================
+146-
+147:def test_state_dict_mutation_during_get_state():
+148-    """
+149-    FAILS: State dict can be deleted while handler holds reference.
+--
+165-
+166-        # Re-register the mode (creates new state dict)
+167:        mode.register('test_mode', handler_v2)
+168-
+169-        # Original state is orphaned
+--
+174-        state['version'] = 2
+175-
+176:    mode.register('test_mode', handler_v1)
+177:    mode.switch('test_mode')
+178-
+179-    mode.handle(MockKeyEvent())
+180-
+181-    # The state we modified is not the current state
+182:    current_state = mode._state['test_mode']
+183-    handler_state = state_refs[0]
+184-
+--
+193-# ============================================================================
+194-
+195:def test_partial_mode_switch_on_exception():
+196-    """
+197-    FAILS: Exception after switch() leaves mode in inconsistent state.
+--
+250-# ============================================================================
+251-
+252:def test_switch_to_current_mode_state_behavior():
+253-    """
+254-    Documents behavior: Switching to current mode is allowed.
+--
+289-# ============================================================================
+290-
+291:def test_thread_safety_documentation():
+292-    """
+293-    Documents that Mode is NOT thread-safe.
+--
+315-# ============================================================================
+316-
+317:def test_switch_with_none_gives_confusing_error():
+318-    """
+319-    FAILS: switch(None) gives KeyError instead of TypeError.
+--
+328-        pass
+329-
+330:    mode.register('test_mode', handler)
+331:    mode.switch('test_mode')
+332-
+333-    # Should raise TypeError with clear message
+334:    with pytest.raises(TypeError, match="mode_name must be a string"):
+335-        mode.switch(None)
+336-
+337-
+338:def test_switch_with_integer_gives_confusing_error():
+339-    """
+340-    FAILS: switch(123) gives KeyError instead of TypeError.
+--
+347-        pass
+348-
+349:    mode.register('test_mode', handler)
+350:    mode.switch('test_mode')
+351-
+352-    # Should raise TypeError with clear message
+353:    with pytest.raises(TypeError, match="mode_name must be a string"):
+354-        mode.switch(123)
+355-
+--
+360-# ============================================================================
+361-
+362:def test_handle_with_none_gives_confusing_error():
+363-    """
+364-    FAILS: handle(None) gives AttributeError instead of TypeError.
+--
+374-        char = event.char
+375-
+376:    mode.register('test_mode', handler)
+377:    mode.switch('test_mode')
+378-
+379-    # Should raise TypeError with clear message
+380:    with pytest.raises(TypeError, match="event must be a KeyEvent"):
+381-        mode.handle(None)
+382-
+383-
+384:def test_handle_with_wrong_type_gives_confusing_error():
+385-    """
+386-    FAILS: handle("string") gives AttributeError instead of TypeError.
+--
+394-        char = event.char
+395-
+396:    mode.register('test_mode', handler)
+397:    mode.switch('test_mode')
+398-
+399-    # Should raise TypeError with clear message
+400:    with pytest.raises(TypeError, match="event must be a KeyEvent"):
+401-        mode.handle("not a key event")
+402-
+--
+407-# ============================================================================
+408-
+409:def test_state_dict_memory_leak():
+410-    """
+411-    FAILS: _state dict grows unbounded - never cleaned up.
+--
+455-
+456-
+457:def test_state_dict_persists_after_handler_removal():
+458-    """
+459-    FAILS: State dict persists even after mode is replaced.
+--
+474-        pass
+475-
+476:    mode.register('test_mode', handler_v1)
+477:    mode.switch('test_mode')
+478-    mode.handle(MockKeyEvent())  # Creates 1MB state
+479-
+480-    # Replace handler
+481:    mode.register('test_mode', handler_v2)
+482:    mode.switch('test_mode')
+483-
+484-    # Old state still exists with 1MB data
+485:    assert 'large_data' in mode._state['test_mode']
+486:    assert len(mode._state['test_mode']['large_data']) == 1000000
+487-
+488-    # There should be a way to reset state:
+489:    # mode.reset_state('test_mode')
+490-    # or
+491:    # mode.register('test_mode', handler_v2, reset_state=True)
+492-
+493-    # FAILS: No way to clean up old state
+--
+495-
+496-if __name__ == "__main__":
+497:    pytest.main([__file__, "-v"])
+
+mode/test_mode.py
+6-"""
+7-
+8:import pytest
+9-from dataclasses import dataclass
+10-from typing import Protocol, Callable
+--
+84-    """Test Mode creation and initialization."""
+85-
+86:    def test_mode_creation(self):
+87-        """Mode can be created with teller and store."""
+88-        from mode import Mode
+--
+94-        assert mode is not None
+95-
+96:    def test_initial_mode_is_none(self):
+97-        """Mode starts with no current mode set."""
+98-        from mode import Mode
+--
+104-        assert mode.current is None
+105-
+106:    def test_mode_stores_dependencies(self):
+107-        """Mode stores teller and store references."""
+108-        from mode import Mode
+--
+124-    """Test mode handler registration."""
+125-
+126:    def test_register_handler(self):
+127-        """Can register a handler function for a mode."""
+128-        from mode import Mode
+--
+138-        # Should not raise
+139-
+140:    def test_register_multiple_handlers(self):
+141-        """Can register multiple different handlers."""
+142-        from mode import Mode
+--
+156-        # Should not raise
+157-
+158:    def test_register_duplicate_mode_replaces(self):
+159-        """Registering same mode name replaces previous handler."""
+160-        from mode import Mode
+--
+180-        assert calls == ['handler2']  # Only handler2 called
+181-
+182:    def test_register_with_invalid_name_raises(self):
+183-        """Registering with empty string name raises ValueError."""
+184-        from mode import Mode
+--
+191-            pass
+192-
+193:        with pytest.raises(ValueError, match="empty"):
+194-            mode.register('', my_handler)
+195-
+196:    def test_register_with_none_name_raises(self):
+197-        """Registering with None name raises TypeError."""
+198-        from mode import Mode
+--
+205-            pass
+206-
+207:        with pytest.raises(TypeError):
+208-            mode.register(None, my_handler)
+209-
+210:    def test_register_with_non_callable_raises(self):
+211-        """Registering non-callable raises TypeError."""
+212-        from mode import Mode
+--
+216-        mode = Mode(teller=teller, store=store)
+217-
+218:        with pytest.raises(TypeError, match="callable"):
+219-            mode.register('read', "not a function")
+220-
+--
+227-    """Test mode transitions."""
+228-
+229:    def test_switch_to_registered_mode(self):
+230-        """Can switch to a registered mode."""
+231-        from mode import Mode
+--
+240-        assert mode.current == 'read'
+241-
+242:    def test_switch_to_unregistered_mode_raises(self):
+243-        """Switching to unregistered mode raises KeyError."""
+244-        from mode import Mode
+--
+248-        mode = Mode(teller=teller, store=store)
+249-
+250:        with pytest.raises(KeyError, match="unknown"):
+251-            mode.switch('nonexistent')
+252-
+253:    def test_switch_between_modes(self):
+254-        """Can switch between different modes."""
+255-        from mode import Mode
+--
+271-        assert mode.current == 'read'
+272-
+273:    def test_switch_to_same_mode_is_noop(self):
+274-        """Switching to current mode is allowed (no-op)."""
+275-        from mode import Mode
+--
+293-    """Test event routing to handlers."""
+294-
+295:    def test_handle_routes_to_current_mode(self):
+296-        """handle() routes event to current mode's handler."""
+297-        from mode import Mode
+--
+315-        assert received[0] == ('read', event)
+316-
+317:    def test_handle_routes_to_correct_handler(self):
+318-        """handle() routes to the current mode, not others."""
+319-        from mode import Mode
+--
+344-        assert received == ['read', 'write']
+345-
+346:    def test_handle_before_switch_raises(self):
+347-        """handle() before any switch() raises RuntimeError."""
+348-        from mode import Mode
+--
+354-        mode.register('read', lambda e, c: None)
+355-
+356:        with pytest.raises(RuntimeError, match="no mode"):
+357-            mode.handle(make_char_event('a'))
+358-
+359:    def test_handle_multiple_events(self):
+360-        """Multiple events routed correctly."""
+361-        from mode import Mode
+--
+387-    """Test ModeContext provided to handlers."""
+388-
+389:    def test_context_has_teller(self):
+390-        """ModeContext provides teller."""
+391-        from mode import Mode
+--
+408-        assert ctx.teller is teller
+409-
+410:    def test_context_has_store(self):
+411-        """ModeContext provides store."""
+412-        from mode import Mode
+--
+429-        assert ctx.store is store
+430-
+431:    def test_context_has_switch(self):
+432-        """ModeContext provides switch callable."""
+433-        from mode import Mode
+--
+450-        assert callable(ctx.switch)
+451-
+452:    def test_context_switch_works(self):
+453-        """Handler can switch modes via context."""
+454-        from mode import Mode
+--
+473-        assert mode.current == 'write'
+474-
+475:    def test_context_current_mode(self):
+476-        """ModeContext provides current mode name."""
+477-        from mode import Mode
+--
+502-    """Test per-mode state isolation."""
+503-
+504:    def test_mode_has_isolated_state(self):
+505-        """Each mode has its own state dict."""
+506-        from mode import Mode
+--
+542-        # The key insight: switching modes should preserve each mode's state
+543-
+544:    def test_state_persists_across_switches(self):
+545-        """Mode state persists when switching away and back."""
+546-        from mode import Mode
+--
+567-        assert 'count=2' in teller.spoken
+568-
+569:    def test_get_state_stable_after_mid_handler_switch(self):
+570-        """get_state() returns same dict even if handler switches modes.
+571-
+--
+608-        assert state_dicts[0][1] == state_dicts[1][1]
+609-
+610:    def test_no_cross_mode_state_pollution(self):
+611-        """Handler cannot accidentally modify another mode's state."""
+612-        from mode import Mode
+--
+646-    """Test behavior when handlers raise exceptions."""
+647-
+648:    def test_handler_exception_logged_not_raised(self):
+649-        """Handler exceptions are caught and logged, not propagated."""
+650-        from mode import Mode
+--
+663-        mode.handle(make_char_event('a'))
+664-
+665:    def test_handler_exception_allows_continued_operation(self):
+666-        """After handler exception, mode continues working."""
+667-        from mode import Mode
+--
+695-    """Edge cases and boundary conditions."""
+696-
+697:    def test_mode_names_are_case_sensitive(self):
+698-        """Mode names 'Read' and 'read' are different."""
+699-        from mode import Mode
+--
+716-        assert calls == ['lower', 'upper']
+717-
+718:    def test_whitespace_mode_name_rejected(self):
+719-        """Mode names with only whitespace are rejected."""
+720-        from mode import Mode
+--
+724-        mode = Mode(teller=teller, store=store)
+725-
+726:        with pytest.raises(ValueError, match="empty"):
+727-            mode.register('   ', lambda e, c: None)
+728-
+729:    def test_special_char_mode_names_allowed(self):
+730-        """Mode names with special characters work."""
+731-        from mode import Mode
+--
+742-        assert mode.current == 'mode-with-dashes'
+743-
+744:    def test_rapid_mode_switching(self):
+745-        """Rapid mode switching doesn't corrupt state."""
+746-        from mode import Mode
+--
+761-        assert mode.current == 'c'
+762-
+763:    def test_handler_can_register_new_mode(self):
+764-        """Handler can register a new mode dynamically."""
+765-        from mode import Mode
+--
+776-        # This is a design question - do handlers have access to Mode itself?
+777-        # For now, skip this test as it may not be a requirement
+778:        pytest.skip("Design decision: handlers don't have Mode access")
+779-
+780-
+--
+786-    """Tests that verify realistic usage patterns."""
+787-
+788:    def test_read_then_options_then_back(self):
+789-        """Simulate typical read -> options -> read flow."""
+790-        from mode import Mode
+--
+833-    """Test mode messages spoken on entry (matching tome.py mode_map)."""
+834-
+835:    def test_message_spoken_on_switch(self):
+836-        """Mode message is spoken when switching to mode."""
+837-        from mode import Mode
+--
+846-        assert 'Read from tome' in teller.spoken
+847-
+848:    def test_no_message_if_none(self):
+849-        """No message spoken if message is None."""
+850-        from mode import Mode
+--
+859-        assert len(teller.spoken) == 0
+860-
+861:    def test_silent_switch_suppresses_message(self):
+862-        """Silent switch doesn't speak message."""
+863-        from mode import Mode
+--
+872-        assert len(teller.spoken) == 0
+873-
+874:    def test_get_message(self):
+875-        """Can retrieve mode message."""
+876-        from mode import Mode
+--
+883-        assert mode.get_message('read') == "Read from tome"
+884-
+885:    def test_set_message_dynamically(self):
+886-        """Can set message dynamically (for confirm mode prompts)."""
+887-        from mode import Mode
+--
+901-    """Test previous mode tracking and back() (matching tome.py)."""
+902-
+903:    def test_previous_mode_tracked(self):
+904-        """Previous mode is tracked on switch."""
+905-        from mode import Mode
+--
+918-        assert mode.previous == 'read'
+919-
+920:    def test_back_returns_to_previous(self):
+921-        """back() returns to previous mode."""
+922-        from mode import Mode
+--
+935-        assert mode.current == 'read'
+936-
+937:    def test_back_does_nothing_if_no_previous(self):
+938-        """back() does nothing if no previous mode."""
+939-        from mode import Mode
+--
+949-        assert mode.current == 'read'
+950-
+951:    def test_context_has_back(self):
+952-        """ModeContext provides back() callable."""
+953-        from mode import Mode
+--
+969-        assert callable(ctx.back)
+970-
+971:    def test_context_has_previous_mode(self):
+972-        """ModeContext provides previous_mode."""
+973-        from mode import Mode
+--
+996-    """Test on_enter and on_exit hooks (for clearing state, etc.)."""
+997-
+998:    def test_on_enter_called_on_switch(self):
+999-        """on_enter is called when switching to mode."""
+1000-        from mode import Mode
+--
+1010-        assert entered == ['read']
+1011-
+1012:    def test_on_exit_called_on_switch_away(self):
+1013-        """on_exit is called when switching away from mode."""
+1014-        from mode import Mode
+--
+1028-        assert exited == ['read']
+1029-
+1030:    def test_on_enter_on_exit_order(self):
+1031-        """on_exit called before on_enter when switching."""
+1032-        from mode import Mode
+--
+1048-        assert calls == ['enter_read', 'exit_read', 'enter_options']
+1049-
+1050:    def test_on_enter_exception_logged_not_raised(self):
+1051-        """on_enter exception is logged but doesn't prevent switch."""
+1052-        from mode import Mode
+--
+1068-    """Test list_modes() for introspection."""
+1069-
+1070:    def test_list_modes_empty(self):
+1071-        """list_modes() returns empty list initially."""
+1072-        from mode import Mode
+--
+1078-        assert mode.list_modes() == []
+1079-
+1080:    def test_list_modes_returns_registered(self):
+1081-        """list_modes() returns all registered mode names."""
+1082-        from mode import Mode
+
+teller/test_teller_oracle.py
+4-"""
+5-
+6:import pytest
+7-from hypothesis import given, strategies as st, settings, assume
+8:from unittest.mock import patch, MagicMock
+9-
+10-
+--
+22-    @given(handler_name=st.sampled_from(["text", "debug", "espeak"]))
+23-    @oracle_settings
+24:    def test_name_is_nonempty_string(self, handler_name):
+25-        """Handler name is always a non-empty string."""
+26-        from teller import get_handler
+--
+31-    @given(handler_name=st.sampled_from(["text", "debug", "espeak"]))
+32-    @oracle_settings
+33:    def test_name_is_lowercase(self, handler_name):
+34-        """Handler name is always lowercase."""
+35-        from teller import get_handler
+--
+39-    @given(handler_name=st.sampled_from(["text", "debug", "espeak"]))
+40-    @oracle_settings
+41:    def test_stop_never_raises(self, handler_name):
+42-        """stop() never raises, even when nothing playing."""
+43-        from teller import get_handler
+--
+58-    @given(text=st.text(max_size=1000))
+59-    @oracle_settings
+60:    def test_text_handler_speak_never_crashes(self, text):
+61-        """text handler speak() handles any string."""
+62-        from teller import get_handler
+--
+67-    @given(text=st.text(max_size=1000))
+68-    @oracle_settings
+69:    def test_debug_handler_speak_never_crashes(self, text):
+70-        """debug handler speak() handles any string."""
+71-        from teller import get_handler
+--
+79-    )
+80-    @oracle_settings
+81:    def test_speed_parameter_doesnt_crash(self, text, speed):
+82-        """Any integer speed value doesn't crash."""
+83-        from teller import get_handler
+--
+90-    )
+91-    @oracle_settings
+92:    def test_wait_parameter_is_boolean(self, text, wait):
+93-        """Boolean wait values work correctly."""
+94-        from teller import get_handler
+--
+106-    @given(st.data())
+107-    @oracle_settings
+108:    def test_list_handlers_is_stable(self, data):
+109-        """list_handlers() returns same result each time."""
+110-        from teller import list_handlers
+--
+115-    @given(st.data())
+116-    @oracle_settings
+117:    def test_listed_handlers_are_gettable(self, data):
+118-        """Every handler in list_handlers() can be retrieved."""
+119-        from teller import list_handlers, get_handler
+--
+125-    @given(handler_name=st.sampled_from(["text", "debug", "espeak"]))
+126-    @oracle_settings
+127:    def test_get_handler_returns_fresh_instance(self, handler_name):
+128-        """get_handler() returns new instance each call."""
+129-        from teller import get_handler
+--
+136-    ))
+137-    @oracle_settings
+138:    def test_unknown_handler_raises(self, name):
+139-        """Unknown handler names raise KeyError."""
+140-        from teller import get_handler
+141-        assume(name.strip() != "")  # Non-empty after strip
+142:        with pytest.raises(KeyError):
+143-            get_handler(name)
+144-
+--
+153-    @given(text=st.text(min_size=1, max_size=100).filter(lambda x: x.strip()))
+154-    @oracle_settings
+155:    def test_espeak_calls_subprocess_for_nonempty(self, text):
+156-        """espeak calls subprocess for non-empty text."""
+157-        from teller import get_handler
+--
+167-    @given(speed=st.integers(min_value=1, max_value=1000))
+168-    @oracle_settings
+169:    def test_espeak_passes_speed_to_command(self, speed):
+170-        """Speed parameter appears in espeak command."""
+171-        from teller import get_handler
+--
+193-    @given(handler_name=st.sampled_from(["text", "debug", "espeak"]))
+194-    @oracle_settings
+195:    def test_handler_name_matches_requested(self, handler_name):
+196-        """Returned handler's name matches request."""
+197-        from teller import get_handler
+--
+201-    @given(n=st.integers(min_value=1, max_value=10))
+202-    @oracle_settings
+203:    def test_multiple_stops_safe(self, n):
+204-        """Calling stop() N times is safe."""
+205-        from teller import get_handler
+--
+210-    @given(n=st.integers(min_value=1, max_value=10))
+211-    @oracle_settings
+212:    def test_speak_stop_alternation(self, n):
+213-        """Alternating speak/stop is safe."""
+214-        from teller import get_handler
+
+listener/test_listener.py
+5-"""
+6-
+7:import pytest
+8-from dataclasses import FrozenInstanceError
+9-
+--
+23-    """Test KeyEvent creation and validation."""
+24-
+25:    def test_char_event_valid(self):
+26-        """Regular character key creates valid event."""
+27-        event = KeyEvent(
+--
+34-        assert event.key is None
+35-
+36:    def test_special_key_event_valid(self):
+37-        """Special key creates valid event."""
+38-        event = KeyEvent(
+--
+45-        assert event.key == SpecialKey.ESCAPE
+46-
+47:    def test_char_with_modifiers(self):
+48-        """Char event with modifiers."""
+49-        event = KeyEvent(
+--
+56-        assert Modifier.CTRL in event.modifiers
+57-
+58:    def test_multiple_modifiers(self):
+59-        """Multiple modifiers tracked."""
+60-        mods = frozenset({Modifier.CTRL, Modifier.SHIFT, Modifier.ALT})
+--
+68-        assert len(event.modifiers) == 3
+69-
+70:    def test_release_event_type(self):
+71-        """Release event type works."""
+72-        event = KeyEvent(
+--
+78-        assert event.event_type == EventType.RELEASE
+79-
+80:    def test_reject_both_char_and_key(self):
+81-        """Cannot have both char and key set."""
+82:        with pytest.raises(ValueError, match="exactly one"):
+83-            KeyEvent(
+84-                char='a',
+--
+88-            )
+89-
+90:    def test_reject_neither_char_nor_key(self):
+91-        """Must have either char or key."""
+92:        with pytest.raises(ValueError, match="exactly one"):
+93-            KeyEvent(
+94-                char=None,
+--
+98-            )
+99-
+100:    def test_reject_non_enum_key(self):
+101-        """Key must be a SpecialKey enum, not a string or other type."""
+102:        with pytest.raises(TypeError, match="SpecialKey enum"):
+103-            KeyEvent(
+104-                char=None,
+--
+108-            )
+109-
+110:    def test_frozen_immutable(self):
+111-        """KeyEvent is immutable (frozen dataclass)."""
+112-        event = KeyEvent(
+--
+116-            event_type=EventType.PRESS
+117-        )
+118:        with pytest.raises(FrozenInstanceError):
+119-            event.char = 'b'
+120-
+121:    def test_equality(self):
+122-        """Identical events are equal."""
+123-        event1 = KeyEvent(
+--
+135-        assert event1 == event2
+136-
+137:    def test_inequality_different_char(self):
+138-        """Different char means not equal."""
+139-        event1 = KeyEvent(char='a', key=None, modifiers=frozenset(), event_type=EventType.PRESS)
+--
+141-        assert event1 != event2
+142-
+143:    def test_hashable(self):
+144-        """KeyEvent can be used in sets/dicts."""
+145-        event = KeyEvent(
+--
+163-    """Test edge cases for character values."""
+164-
+165:    def test_space_char(self):
+166-        """Space is a valid char."""
+167-        event = KeyEvent(
+--
+173-        assert event.char == ' '
+174-
+175:    def test_unicode_char(self):
+176-        """Unicode characters work."""
+177-        event = KeyEvent(
+--
+183-        assert event.char == 'é'
+184-
+185:    def test_unicode_cjk(self):
+186-        """CJK characters work."""
+187-        event = KeyEvent(
+--
+193-        assert event.char == '中'
+194-
+195:    def test_newline_char(self):
+196-        """Newline as char (edge case - probably shouldn't happen in practice)."""
+197-        event = KeyEvent(
+--
+203-        assert event.char == '\n'
+204-
+205:    def test_empty_string_char_rejected(self):
+206-        """Empty string char is rejected."""
+207:        with pytest.raises(ValueError, match="exactly one character"):
+208-            KeyEvent(
+209-                char='',
+--
+213-            )
+214-
+215:    def test_multi_char_string_rejected(self):
+216-        """Multi-character string is rejected."""
+217:        with pytest.raises(ValueError, match="exactly one character"):
+218-            KeyEvent(
+219-                char='ab',
+--
+231-    """Ensure all SpecialKey enum values work."""
+232-
+233:    @pytest.mark.parametrize("special_key", list(SpecialKey))
+234:    def test_all_special_keys_valid(self, special_key):
+235-        """Each SpecialKey creates valid event."""
+236-        event = KeyEvent(
+--
+250-    """Tests for MockListener (test double for keyboard input)."""
+251-
+252:    def test_mock_listener_import(self):
+253-        """MockListener can be imported."""
+254-        from listener import MockListener
+255-        assert MockListener is not None
+256-
+257:    def test_start_accepts_callback(self):
+258-        """start() accepts a callback function."""
+259-        from listener import MockListener
+--
+267-        # Should not raise
+268-
+269:    def test_inject_calls_callback(self):
+270-        """inject() passes event to callback."""
+271-        from listener import MockListener
+--
+284-        assert received[0] == event
+285-
+286:    def test_inject_multiple_events(self):
+287-        """Multiple injected events all reach callback in order."""
+288-        from listener import MockListener
+--
+306-        assert received == events
+307-
+308:    def test_stop_then_inject_raises(self):
+309-        """After stop(), inject() raises an error."""
+310-        from listener import MockListener
+--
+315-
+316-        event = KeyEvent(char='a', key=None, modifiers=frozenset(), event_type=EventType.PRESS)
+317:        with pytest.raises(RuntimeError, match="not started"):
+318-            listener.inject(event)
+319-
+320:    def test_inject_before_start_raises(self):
+321-        """inject() before start() raises an error."""
+322-        from listener import MockListener
+--
+325-        event = KeyEvent(char='a', key=None, modifiers=frozenset(), event_type=EventType.PRESS)
+326-
+327:        with pytest.raises(RuntimeError, match="not started"):
+328-            listener.inject(event)
+329-
+330:    def test_start_twice_raises(self):
+331-        """start() called twice without stop() raises an error."""
+332-        from listener import MockListener
+--
+335-        listener.start(lambda e: None)
+336-
+337:        with pytest.raises(RuntimeError, match="already started"):
+338-            listener.start(lambda e: None)
+339-
+340:    def test_stop_before_start_is_noop(self):
+341-        """stop() before start() is a no-op (idempotent)."""
+342-        from listener import MockListener
+--
+345-        listener.stop()  # Should not raise
+346-
+347:    def test_stop_twice_is_noop(self):
+348-        """stop() called twice is a no-op (idempotent)."""
+349-        from listener import MockListener
+--
+354-        listener.stop()  # Should not raise
+355-
+356:    def test_restart_after_stop(self):
+357-        """Can start() again after stop()."""
+358-        from listener import MockListener
+--
+376-# =============================================================================
+377-
+378:@pytest.fixture
+379-def pynput_listener():
+380-    """Create PynputListener with guaranteed cleanup."""
+--
+388-    """Tests for PynputListener (real keyboard via pynput)."""
+389-
+390:    def test_pynput_listener_import(self):
+391-        """PynputListener can be imported."""
+392-        from listener import PynputListener
+393-        assert PynputListener is not None
+394-
+395:    def test_implements_protocol(self, pynput_listener):
+396-        """PynputListener implements Listener protocol."""
+397-        from listener import Listener
+--
+403-        assert callable(pynput_listener.stop)
+404-
+405:    def test_start_twice_raises(self, pynput_listener):
+406-        """start() called twice without stop() raises an error."""
+407-        pynput_listener.start(lambda e: None)
+408-
+409:        with pytest.raises(RuntimeError, match="already started"):
+410-            pynput_listener.start(lambda e: None)
+411-
+412:    def test_stop_before_start_is_noop(self, pynput_listener):
+413-        """stop() before start() is a no-op (idempotent)."""
+414-        pynput_listener.stop()  # Should not raise
+--
+418-    """Test modifier key tracking in PynputListener."""
+419-
+420:    def test_shift_modifier_tracked(self):
+421-        """Pressing shift adds SHIFT to modifiers."""
+422-        from listener import PynputListener
+423:        from unittest.mock import MagicMock, patch
+424-        from pynput import keyboard
+425-
+--
+440-        # Implementation may differ - adjust as needed
+441-
+442:    def test_ctrl_modifier_tracked(self):
+443-        """Pressing ctrl adds CTRL to modifiers."""
+444-        from listener import PynputListener
+--
+450-        assert Modifier.CTRL in listener._modifiers
+451-
+452:    def test_modifier_released(self):
+453-        """Releasing modifier removes it from tracking."""
+454-        from listener import PynputListener
+--
+462-        assert Modifier.CTRL not in listener._modifiers
+463-
+464:    def test_multiple_modifiers(self):
+465-        """Multiple modifiers tracked simultaneously."""
+466-        from listener import PynputListener
+--
+476-        assert Modifier.ALT in listener._modifiers
+477-
+478:    def test_left_right_ctrl_treated_same(self):
+479-        """ctrl and ctrl_r both set CTRL modifier."""
+480-        from listener import PynputListener
+--
+493-        assert Modifier.CTRL in listener._modifiers
+494-
+495:    def test_left_right_shift_treated_same(self):
+496-        """shift and shift_r both set SHIFT modifier."""
+497-        from listener import PynputListener
+--
+507-        assert Modifier.SHIFT in listener._modifiers
+508-
+509:    def test_left_right_alt_treated_same(self):
+510-        """alt and alt_r both set ALT modifier."""
+511-        from listener import PynputListener
+--
+525-    """Test key normalization and mapping."""
+526-
+527:    def test_char_key_normalized(self):
+528-        """Key with .char attribute creates char event."""
+529-        from listener import PynputListener
+530:        from unittest.mock import MagicMock
+531-
+532-        received = []
+--
+545-        assert received[0].key is None
+546-
+547:    def test_escape_mapped(self):
+548-        """keyboard.Key.esc maps to SpecialKey.ESCAPE."""
+549-        from listener import PynputListener
+--
+561-        assert received[0].key == SpecialKey.ESCAPE
+562-
+563:    def test_backspace_mapped(self):
+564-        """keyboard.Key.backspace maps to SpecialKey.BACKSPACE."""
+565-        from listener import PynputListener
+--
+577-        assert received[0].key == SpecialKey.BACKSPACE
+578-
+579:    def test_tab_mapped(self):
+580-        """keyboard.Key.tab maps to SpecialKey.TAB."""
+581-        from listener import PynputListener
+--
+593-        assert received[0].key == SpecialKey.TAB
+594-
+595:    def test_arrow_keys_mapped(self):
+596-        """Arrow keys map to SpecialKey variants."""
+597-        from listener import PynputListener
+--
+617-            assert received[0].key == expected_special
+618-
+619:    def test_key_without_char_attribute(self):
+620-        """Key without .char (AttributeError) handled gracefully."""
+621-        from listener import PynputListener
+622:        from unittest.mock import MagicMock
+623-
+624-        received = []
+--
+636-        listener._on_press(mock_key)
+637-
+638:    def test_unknown_special_key_skipped(self):
+639-        """Unknown special key (e.g., F1) is skipped - no event emitted."""
+640-        from listener import PynputListener
+--
+656-    """Test press/release event emission."""
+657-
+658:    def test_press_emits_press_event(self):
+659-        """_on_press emits event with EventType.PRESS."""
+660-        from listener import PynputListener
+661:        from unittest.mock import MagicMock
+662-
+663-        received = []
+--
+674-        assert received[0].event_type == EventType.PRESS
+675-
+676:    def test_release_emits_release_event(self):
+677-        """_on_release emits event with EventType.RELEASE."""
+678-        from listener import PynputListener
+679:        from unittest.mock import MagicMock
+680-
+681-        received = []
+--
+696-    """Edge cases for PynputListener."""
+697-
+698:    def test_release_without_press(self):
+699-        """Release event for key never pressed doesn't crash."""
+700-        from listener import PynputListener
+--
+706-        # Should not raise
+707-
+708:    def test_callback_exception_continues(self):
+709-        """If callback raises, listener continues working."""
+710-        from listener import PynputListener
+711:        from unittest.mock import MagicMock
+712-
+713-        call_count = [0]
+
+mode/test_mode_syndic.py
+1:"""Comprehensive pytest test suite for Mode state machine.
+2-
+3-Tests the Mode RSP (Request-State-Present) pattern:
+--
+10-"""
+11-
+12:import pytest
+13-from dataclasses import dataclass
+14-from typing import Callable, Any
+15:from unittest.mock import Mock, MagicMock
+16-
+17-
+--
+79-
+80-# Fixtures
+81:@pytest.fixture
+82-def store():
+83-    """Provide a fresh MockStore."""
+--
+85-
+86-
+87:@pytest.fixture
+88-def teller():
+89-    """Provide a fresh MockTeller."""
+--
+91-
+92-
+93:@pytest.fixture
+94-def mode(store, teller):
+95-    """Provide a fresh Mode instance."""
+--
+102-    """Test Mode construction and initialization."""
+103-    
+104:    def test_construct_with_store_and_teller(self, store, teller):
+105-        """Mode can be constructed with store and teller."""
+106-        from mode import Mode
+--
+108-        assert m is not None
+109-    
+110:    def test_initial_mode_is_none(self, mode):
+111-        """Mode starts with no current mode."""
+112-        assert mode.current is None
+113-    
+114:    def test_store_reference_maintained(self, mode, store):
+115-        """Mode maintains reference to store."""
+116-        # Verify by using a handler that accesses store
+--
+125-        assert ctx.store is store
+126-    
+127:    def test_teller_reference_maintained(self, mode, teller):
+128-        """Mode maintains reference to teller."""
+129-        handler, mock = make_handler()
+--
+142-    """Test mode registration."""
+143-    
+144:    def test_register_valid_handler(self, mode):
+145-        """Can register a valid mode handler."""
+146:        handler, _ = make_handler('test_handler')
+147-        mode.register('insert', handler)
+148-        # Should not raise
+149-    
+150:    def test_register_multiple_modes(self, mode):
+151-        """Can register multiple different modes."""
+152-        handler1, _ = make_handler('handler1')
+--
+159-        # Should not raise
+160-    
+161:    def test_register_duplicate_mode_replaces(self, mode):
+162-        """Registering duplicate mode name replaces handler (design decision)."""
+163-        handler1, calls1 = make_handler('handler1')
+--
+174-        assert calls2.call_count == 1
+175-    
+176:    def test_register_invalid_name_empty(self, mode):
+177-        """Registering empty mode name raises error."""
+178-        handler, _ = make_handler()
+179-        
+180:        with pytest.raises((ValueError, TypeError)):
+181-            mode.register('', handler)
+182-    
+183:    def test_register_invalid_name_none(self, mode):
+184-        """Registering None as mode name raises error."""
+185-        handler, _ = make_handler()
+186-        
+187:        with pytest.raises((ValueError, TypeError)):
+188-            mode.register(None, handler)
+189-    
+190:    def test_register_invalid_handler_none(self, mode):
+191-        """Registering None as handler raises error."""
+192:        with pytest.raises((ValueError, TypeError)):
+193-            mode.register('insert', None)
+194-    
+195:    def test_register_invalid_handler_not_callable(self, mode):
+196-        """Registering non-callable as handler raises error."""
+197:        with pytest.raises((ValueError, TypeError)):
+198-            mode.register('insert', "not a function")
+199-
+--
+203-    """Test mode switching."""
+204-    
+205:    def test_switch_to_registered_mode(self, mode):
+206-        """Can switch to a registered mode."""
+207-        handler, _ = make_handler()
+--
+211-        assert mode.current == 'insert'
+212-    
+213:    def test_switch_to_unregistered_mode_raises(self, mode):
+214-        """Switching to unregistered mode raises error."""
+215:        with pytest.raises((ValueError, KeyError)):
+216-            mode.switch('nonexistent')
+217-    
+218:    def test_switch_updates_current(self, mode):
+219-        """Switching updates the current mode property."""
+220-        handler1, _ = make_handler()
+--
+230-        assert mode.current == 'insert'
+231-    
+232:    def test_switch_to_same_mode(self, mode):
+233-        """Can switch to the same mode (no-op or re-entry)."""
+234-        handler, _ = make_handler()
+--
+242-        assert mode.current == 'insert'
+243-    
+244:    def test_switch_from_none(self, mode):
+245-        """Can switch from initial None state."""
+246-        handler, _ = make_handler()
+--
+251-        assert mode.current == 'insert'
+252-    
+253:    def test_switch_multiple_transitions(self, mode):
+254-        """Can perform multiple mode transitions."""
+255-        h1, _ = make_handler()
+--
+278-    """Test event routing to mode handlers."""
+279-    
+280:    def test_handle_routes_to_current_mode(self, mode):
+281-        """Events are routed to the current mode handler."""
+282-        handler, mock = make_handler()
+--
+290-        assert mock.call_args[0][0] is event
+291-    
+292:    def test_handle_with_no_current_mode(self, mode):
+293-        """Handling event with no current mode raises or is no-op."""
+294-        event = make_key_event('a')
+--
+302-            pass
+303-    
+304:    def test_handle_multiple_events(self, mode):
+305-        """Multiple events are routed correctly."""
+306-        handler, mock = make_handler()
+--
+318-        assert mock.call_count == 3
+319-    
+320:    def test_handle_routes_to_correct_mode_after_switch(self, mode):
+321-        """Events route to correct handler after mode switch."""
+322-        handler1, mock1 = make_handler('h1')
+--
+338-        assert mock2.call_count == 1
+339-    
+340:    def test_handle_with_modifiers(self, mode):
+341-        """Events with modifiers are passed correctly."""
+342-        handler, mock = make_handler()
+--
+357-    """Test ModeContext contract and contents."""
+358-    
+359:    def test_context_contains_store(self, mode, store):
+360-        """ModeContext contains the store reference."""
+361-        handler, mock = make_handler()
+--
+367-        assert ctx.store is store
+368-    
+369:    def test_context_contains_teller(self, mode, teller):
+370-        """ModeContext contains the teller reference."""
+371-        handler, mock = make_handler()
+--
+377-        assert ctx.teller is teller
+378-    
+379:    def test_context_contains_switch_function(self, mode):
+380-        """ModeContext contains a switch function."""
+381-        handler, mock = make_handler()
+--
+387-        assert callable(ctx.switch)
+388-    
+389:    def test_context_switch_function_works(self, mode):
+390-        """Context's switch function actually switches modes."""
+391-        handler1_called = []
+--
+409-        assert mode.current == 'mode2'
+410-    
+411:    def test_context_contains_current_mode(self, mode):
+412-        """ModeContext contains current mode name."""
+413-        handler, mock = make_handler()
+--
+419-        assert ctx.current_mode == 'insert'
+420-    
+421:    def test_context_contains_get_state(self, mode):
+422-        """ModeContext contains get_state function."""
+423-        handler, mock = make_handler()
+--
+429-        assert callable(ctx.get_state)
+430-    
+431:    def test_context_get_state_returns_dict(self, mode):
+432-        """Context's get_state returns a dictionary."""
+433-        state_result = None
+--
+448-    """Test that state is isolated per mode."""
+449-    
+450:    def test_modes_have_separate_state(self, mode):
+451-        """Different modes maintain separate state."""
+452-        state1 = None
+--
+481-        assert state2 == 10  # mode2 started fresh
+482-    
+483:    def test_state_persists_across_switches(self, mode):
+484-        """Mode state persists when switching away and back."""
+485-        counts = []
+--
+516-    """Test exception handling in handlers."""
+517-    
+518:    def test_handler_exception_caught_not_propagated(self, mode):
+519-        """Exceptions in handlers are caught and logged (design decision).
+520-
+--
+531-        mode.handle(make_key_event('a'))  # No exception
+532-    
+533:    def test_mode_remains_functional_after_handler_error(self, mode):
+534-        """Mode remains functional after a handler error."""
+535-        error_count = [0]
+--
+562-    """Test edge cases and boundary conditions."""
+563-    
+564:    def test_switch_during_event_handling(self, mode):
+565-        """Can switch modes during event handling."""
+566-        def handler1(event, ctx):
+--
+578-        assert mode.current == 'mode2'
+579-    
+580:    def test_mode_names_with_special_characters(self, mode):
+581-        """Mode names with special characters work."""
+582-        handler, _ = make_handler()
+--
+589-        assert mode.current == 'mode-with-dash'
+590-    
+591:    def test_empty_event_key(self, mode):
+592-        """Handler receives events with empty key."""
+593-        handler, mock = make_handler()
+--
+601-        assert mock.call_args[0][0].char == ''
+602-    
+603:    def test_many_registered_modes(self, mode):
+604-        """Can register many modes."""
+605-        for i in range(100):
+--
+610-        assert mode.current == 'mode50'
+611-    
+612:    def test_handler_can_access_store(self, mode, store):
+613-        """Handler can read/write store through context."""
+614-        def handler(event, ctx):
+615:            ctx.store.set('test_key', 'test_value')
+616:            value = ctx.store.get('test_key')
+617-            ctx.store.set('retrieved', value)
+618-        
+--
+621-        mode.handle(make_key_event('a'))
+622-        
+623:        assert store.data['test_key'] == 'test_value'
+624:        assert store.data['retrieved'] == 'test_value'
+625-    
+626:    def test_handler_can_use_teller(self, mode, teller):
+627-        """Handler can send messages through teller."""
+628-        def handler(event, ctx):
+--
+635-        assert 'Hello from handler' in teller.messages
+636-    
+637:    def test_rapid_mode_switching(self, mode):
+638-        """Rapid mode switches work correctly."""
+639-        h1, _ = make_handler()
+--
+648-        assert mode.current in ['mode1', 'mode2']
+649-    
+650:    def test_current_property_is_readonly(self, mode):
+651-        """The current property cannot be set directly."""
+652-        handler, _ = make_handler()
+--
+655-        
+656-        # Attempt to set should fail (property has no setter)
+657:        with pytest.raises(AttributeError):
+658-            mode.current = 'some_other_mode'
+
+teller/test_teller.py
+4-"""
+5-
+6:import pytest
+7-import sys
+8-import tempfile
+9-from pathlib import Path
+10:from unittest.mock import Mock, patch, MagicMock
+11-from io import StringIO
+12-
+--
+16-# ============================================================================
+17-
+18:@pytest.fixture
+19-def temp_handlers_dir(tmp_path):
+20-    """Create a temporary handlers directory for discovery tests."""
+--
+24-
+25-
+26:@pytest.fixture
+27-def mock_subprocess():
+28-    """Mock subprocess for espeak tests."""
+--
+45-    """Every handler must satisfy the protocol."""
+46-
+47:    @pytest.fixture(params=["text", "debug", "espeak"])
+48-    def handler(self, request):
+49-        """Parametrized fixture for all handler types."""
+--
+51-        return get_handler(request.param)
+52-
+53:    def test_has_name_property(self, handler):
+54-        """Handler must have a name property."""
+55-        assert hasattr(handler, "name")
+56-
+57:    def test_name_is_string(self, handler):
+58-        """Handler name must be a string."""
+59-        assert isinstance(handler.name, str)
+60-        assert len(handler.name) > 0
+61-
+62:    def test_has_speak_method(self, handler):
+63-        """Handler must have speak method."""
+64-        assert hasattr(handler, "speak")
+65-        assert callable(handler.speak)
+66-
+67:    def test_has_stop_method(self, handler):
+68-        """Handler must have stop method."""
+69-        assert hasattr(handler, "stop")
+70-        assert callable(handler.stop)
+71-
+72:    def test_stop_callable_without_args(self, handler):
+73-        """stop() should be callable with no arguments."""
+74-        # Should not raise
+--
+83-    """Drop-in handler loading from directory."""
+84-
+85:    def test_discovers_handlers_in_directory(self, temp_handlers_dir):
+86-        """Handlers in directory are discovered and registered."""
+87-        # Create a valid handler file
+--
+92-    @property
+93-    def name(self):
+94:        return "test_handler"
+95-
+96-    def speak(self, text, speed=270, wait=False):
+--
+100-        pass
+101-'''
+102:        (temp_handlers_dir / "test_handler.py").write_text(handler_code)
+103-
+104-        from teller.discovery import discover_handlers
+105-        handlers, handler_classes = discover_handlers(temp_handlers_dir)
+106-
+107:        assert "test_handler" in handlers
+108-
+109:    def test_ignores_init_py(self, temp_handlers_dir):
+110-        """__init__.py is not treated as a handler module."""
+111-        (temp_handlers_dir / "__init__.py").write_text("# init")
+--
+117-        assert "__init__" not in handlers
+118-
+119:    def test_ignores_non_handler_classes(self, temp_handlers_dir):
+120-        """Files without BaseHandler subclass are ignored."""
+121-        non_handler = '''
+--
+131-        assert len(handlers) == 0
+132-
+133:    def test_handles_import_error_gracefully(self, temp_handlers_dir):
+134-        """Import errors in handler files don't crash discovery."""
+135-        bad_code = "import nonexistent_module_xyz"
+--
+141-        assert "bad_handler" not in handlers
+142-
+143:    def test_registers_with_handler_name(self, temp_handlers_dir):
+144-        """Handler is registered under its name property, not filename."""
+145-        handler_code = '''
+--
+173-    """Plain text output for testing/CLI use."""
+174-
+175:    @pytest.fixture
+176-    def handler(self):
+177-        from teller.handlers.text import TextHandler
+178-        return TextHandler()
+179-
+180:    def test_name_is_text(self, handler):
+181-        assert handler.name == "text"
+182-
+183:    def test_outputs_to_stdout(self, handler, capsys):
+184-        """speak() prints text to stdout."""
+185-        handler.speak("hello world")
+--
+187-        assert "hello world" in captured.out
+188-
+189:    def test_empty_string_no_error(self, handler, capsys):
+190-        """Empty string doesn't error."""
+191-        handler.speak("")
+--
+193-        # Should complete without error
+194-
+195:    def test_unicode_preserved(self, handler, capsys):
+196-        """Unicode characters are preserved in output."""
+197-        handler.speak("Hello ")
+--
+199-        assert "" in captured.out
+200-
+201:    def test_long_text_not_truncated(self, handler, capsys):
+202-        """Long text is not truncated."""
+203-        long_text = "x" * 10000
+--
+206-        assert long_text in captured.out
+207-
+208:    def test_speed_parameter_accepted(self, handler):
+209-        """speed parameter is accepted (may be ignored for text)."""
+210-        # Should not raise
+--
+212-        handler.speak("test", speed=500)
+213-
+214:    def test_wait_parameter_accepted(self, handler):
+215-        """wait parameter is accepted (no-op for text)."""
+216-        handler.speak("test", wait=True)
+217-        handler.speak("test", wait=False)
+218-
+219:    def test_stop_is_noop(self, handler):
+220-        """stop() is safe to call (no-op for text)."""
+221-        handler.stop()
+--
+229-    """Text output with timing and metadata."""
+230-
+231:    @pytest.fixture
+232-    def handler(self):
+233-        from teller.handlers.debug import DebugHandler
+234-        return DebugHandler()
+235-
+236:    def test_name_is_debug(self, handler):
+237-        assert handler.name == "debug"
+238-
+239:    def test_includes_spoken_text(self, handler, capsys):
+240-        """Output includes the spoken text."""
+241-        handler.speak("test message")
+--
+243-        assert "test message" in captured.out
+244-
+245:    def test_includes_timestamp(self, handler, capsys):
+246-        """Output includes a timestamp."""
+247-        handler.speak("test")
+--
+251-        assert any(x in captured.out for x in [":", "T", "Z", "20"])
+252-
+253:    def test_includes_speed_value(self, handler, capsys):
+254-        """Output shows the speed parameter."""
+255-        handler.speak("test", speed=350)
+--
+257-        assert "350" in captured.out
+258-
+259:    def test_includes_wait_value(self, handler, capsys):
+260-        """Output shows the wait parameter."""
+261-        handler.speak("test", wait=True)
+--
+264-        assert "True" in captured.out or "wait" in captured.out.lower()
+265-
+266:    def test_includes_handler_name(self, handler, capsys):
+267-        """Output includes handler identifier."""
+268-        handler.speak("test")
+--
+278-    """Real TTS via espeak subprocess."""
+279-
+280:    @pytest.fixture
+281-    def handler(self):
+282-        from teller.handlers.espeak import EspeakHandler
+283-        return EspeakHandler()
+284-
+285:    def test_name_is_espeak(self, handler):
+286-        assert handler.name == "espeak"
+287-
+288:    def test_calls_espeak_subprocess(self, handler, mock_subprocess):
+289-        """speak() invokes espeak via subprocess."""
+290-        handler.speak("hello")
+--
+293-        assert mock_subprocess["Popen"].called or mock_subprocess["call"].called
+294-
+295:    def test_passes_text_to_espeak(self, handler, mock_subprocess):
+296-        """The text is passed to espeak."""
+297-        handler.speak("hello world")
+--
+306-        assert "hello world" in str(cmd)
+307-
+308:    def test_passes_speed_argument(self, handler, mock_subprocess):
+309-        """Speed is passed to espeak -s flag."""
+310-        handler.speak("test", speed=200)
+--
+319-        assert "200" in cmd_str or "-s200" in cmd_str or "-s 200" in cmd_str
+320-
+321:    def test_wait_false_uses_popen(self, handler, mock_subprocess):
+322-        """wait=False uses Popen (non-blocking)."""
+323-        handler.speak("test", wait=False)
+324-        assert mock_subprocess["Popen"].called
+325-
+326:    def test_wait_true_uses_call(self, handler, mock_subprocess):
+327-        """wait=True uses call (blocking)."""
+328-        handler.speak("test", wait=True)
+329-        assert mock_subprocess["call"].called
+330-
+331:    def test_stop_kills_process(self, handler, mock_subprocess):
+332-        """stop() terminates running espeak process."""
+333-        with patch("subprocess.run") as mock_run:
+--
+346-    """Top-level convenience functions."""
+347-
+348:    def test_speak_uses_default_handler(self):
+349-        """speak() delegates to the default handler."""
+350-        import teller
+--
+354-            mock_handler.speak.assert_called()
+355-
+356:    def test_announce_calls_stop_then_speak(self):
+357-        """announce() stops current speech then speaks."""
+358-        import teller
+--
+364-            mock_handler.speak.assert_called()
+365-
+366:    def test_stop_delegates_to_handler(self):
+367-        """stop() delegates to current handler."""
+368-        import teller
+--
+372-            mock_handler.stop.assert_called()
+373-
+374:    def test_get_handler_returns_by_name(self):
+375-        """get_handler() returns handler instance by name."""
+376-        from teller import get_handler
+--
+378-        assert handler.name == "text"
+379-
+380:    def test_get_handler_unknown_raises(self):
+381-        """get_handler() raises for unknown handler name."""
+382-        from teller import get_handler
+383:        with pytest.raises(KeyError):
+384-            get_handler("nonexistent_handler_xyz")
+385-
+386:    def test_list_handlers_returns_all(self):
+387-        """list_handlers() returns all registered handler names."""
+388-        from teller import list_handlers
+--
+392-        assert "debug" in handlers
+393-
+394:    def test_set_default_handler_changes_default(self):
+395-        """set_default_handler() changes which handler speak() uses."""
+396-        import teller
+--
+404-            teller._default_handler = original
+405-
+406:    def test_set_default_unknown_raises(self):
+407-        """set_default_handler() raises for unknown handler."""
+408-        from teller import set_default_handler
+409:        with pytest.raises(KeyError):
+410-            set_default_handler("nonexistent_xyz")
+411-
+--
+418-    """Boundary conditions and unusual inputs."""
+419-
+420:    @pytest.fixture(params=["text", "debug"])
+421-    def handler(self, request):
+422-        """Test edge cases on non-audio handlers."""
+--
+424-        return get_handler(request.param)
+425-
+426:    def test_empty_string(self, handler):
+427-        """Empty string is handled."""
+428-        handler.speak("")
+429-
+430:    def test_whitespace_only(self, handler):
+431-        """Whitespace-only string is handled."""
+432-        handler.speak("   \n\t  ")
+433-
+434:    def test_very_long_text(self, handler):
+435-        """Very long text (100k chars) is handled."""
+436-        handler.speak("x" * 100000)
+437-
+438:    def test_unicode_emoji(self, handler):
+439-        """Emoji are handled."""
+440-        handler.speak("Hello  World ")
+441-
+442:    def test_unicode_rtl(self, handler):
+443-        """RTL text is handled."""
+444-        handler.speak("")
+445-
+446:    def test_newlines_in_text(self, handler):
+447-        """Newlines in text are handled."""
+448-        handler.speak("line1\nline2\nline3")
+449-
+450:    def test_speed_boundary_low(self, handler):
+451-        """Very low speed value."""
+452-        handler.speak("test", speed=1)
+453-
+454:    def test_speed_boundary_high(self, handler):
+455-        """Very high speed value."""
+456-        handler.speak("test", speed=1000)
+457-
+458:    def test_speed_zero(self, handler):
+459-        """Zero speed - implementation decides behavior."""
+460-        # Should not crash
+--
+464-            pass  # Acceptable to reject
+465-
+466:    def test_speed_negative(self, handler):
+467-        """Negative speed - implementation decides behavior."""
+468-        try:
+--
+479-    """Multiple calls, interruption behavior."""
+480-
+481:    @pytest.fixture
+482-    def handler(self):
+483-        from teller import get_handler
+484-        return get_handler("text")
+485-
+486:    def test_rapid_successive_calls(self, handler):
+487-        """Rapid successive calls don't crash."""
+488-        for i in range(100):
+489-            handler.speak(f"message {i}")
+490-
+491:    def test_stop_during_noop(self, handler):
+492-        """stop() when nothing is playing is safe."""
+493-        handler.stop()
+--
+495-        handler.stop()
+496-
+497:    def test_speak_stop_speak(self, handler):
+498-        """speak-stop-speak sequence works."""
+499-        handler.speak("first")
+
+teller/test_teller_gremlin.py
+4-"""
+5-
+6:import pytest
+7:from unittest.mock import patch, MagicMock
+8-
+9-
+--
+15-    """What happens with wrong types?"""
+16-
+17:    def test_speak_with_none(self):
+18-        """None as text - should not crash."""
+19-        from teller import get_handler
+--
+22-        handler.speak(None)  # Should not raise
+23-
+24:    def test_speak_with_integer(self):
+25-        """Integer as text - coerces to string or skips."""
+26-        from teller import get_handler
+--
+28-        handler.speak(123)  # Should not crash
+29-
+30:    def test_speak_with_list(self):
+31-        """List as text - should handle somehow."""
+32-        from teller import get_handler
+--
+34-        handler.speak(["hello", "world"])  # Should not crash
+35-
+36:    def test_speak_with_dict(self):
+37-        """Dict as text - should handle somehow."""
+38-        from teller import get_handler
+--
+40-        handler.speak({"key": "value"})  # Should not crash
+41-
+42:    def test_speak_with_bytes(self):
+43-        """Bytes as text - may need decoding."""
+44-        from teller import get_handler
+--
+46-        handler.speak(b"hello bytes")  # Should not crash
+47-
+48:    def test_speed_as_string(self):
+49-        """String speed - should handle."""
+50-        from teller import get_handler
+--
+52-        handler.speak("test", speed="fast")  # Should not crash
+53-
+54:    def test_speed_as_none(self):
+55-        """None speed - should use default."""
+56-        from teller import get_handler
+--
+58-        handler.speak("test", speed=None)  # Should not crash
+59-
+60:    def test_wait_as_string(self):
+61-        """String wait - truthy handling."""
+62-        from teller import get_handler
+--
+72-    """Weird but syntactically valid inputs."""
+73-
+74:    def test_null_bytes_in_text(self):
+75-        """Null bytes in text."""
+76-        from teller import get_handler
+--
+78-        handler.speak("hello\x00world")  # Should not crash
+79-
+80:    def test_control_characters(self):
+81-        """ASCII control characters."""
+82-        from teller import get_handler
+--
+84-        handler.speak("hello\x07\x08\x1b[31mworld")  # Bell, backspace, ANSI
+85-
+86:    def test_only_whitespace(self):
+87-        """Only whitespace - edge case."""
+88-        from teller import get_handler
+--
+90-        handler.speak("   \t\n\r   ")
+91-
+92:    def test_mixed_encodings(self):
+93-        """Text that looks like it has encoding issues."""
+94-        from teller import get_handler
+--
+96-        handler.speak("caf\xc3\xa9")  # UTF-8 bytes as string
+97-
+98:    def test_surrogate_pairs(self):
+99-        """Unicode surrogate pairs."""
+100-        from teller import get_handler
+--
+102-        handler.speak("emoji: \U0001F600")  # Grinning face
+103-
+104:    def test_extremely_long_text(self):
+105-        """Very long text - memory/performance."""
+106-        from teller import get_handler
+--
+109-        handler.speak(long_text)  # Should not crash (may be slow)
+110-
+111:    def test_many_newlines(self):
+112-        """Text with thousands of newlines."""
+113-        from teller import get_handler
+--
+123-    """Attempt shell injection via espeak handler."""
+124-
+125:    def test_semicolon_injection(self):
+126-        """Semicolon command separator."""
+127-        from teller import get_handler
+--
+136-                assert call_args.kwargs.get("shell") != True
+137-
+138:    def test_backtick_injection(self):
+139-        """Backtick command substitution."""
+140-        from teller import get_handler
+--
+144-            handler.speak("hello `whoami`")
+145-
+146:    def test_dollar_paren_injection(self):
+147-        """$() command substitution."""
+148-        from teller import get_handler
+--
+152-            handler.speak("hello $(cat /etc/passwd)")
+153-
+154:    def test_pipe_injection(self):
+155-        """Pipe to another command."""
+156-        from teller import get_handler
+--
+160-            handler.speak("hello | cat /etc/passwd")
+161-
+162:    def test_redirect_injection(self):
+163-        """Output redirection."""
+164-        from teller import get_handler
+--
+176-    """Try to exhaust resources."""
+177-
+178:    def test_rapid_speak_calls(self):
+179-        """Many rapid successive calls."""
+180-        from teller import get_handler
+--
+183-            handler.speak("rapid fire")
+184-
+185:    def test_rapid_stop_calls(self):
+186-        """Many rapid stop calls."""
+187-        from teller import get_handler
+--
+190-            handler.stop()
+191-
+192:    def test_interleaved_speak_stop(self):
+193-        """Interleaved speak and stop."""
+194-        from teller import get_handler
+--
+198-            handler.stop()
+199-
+200:    def test_many_handler_instances(self):
+201-        """Create many handler instances."""
+202-        from teller import get_handler
+--
+212-    """Attack the handler discovery mechanism."""
+213-
+214:    def test_get_handler_with_path_traversal(self):
+215-        """Path traversal in handler name."""
+216-        from teller import get_handler
+217:        with pytest.raises(KeyError):
+218-            get_handler("../../../etc/passwd")
+219-
+220:    def test_get_handler_with_special_chars(self):
+221-        """Special characters in handler name."""
+222-        from teller import get_handler
+223:        with pytest.raises(KeyError):
+224-            get_handler("handler;rm")
+225-
+226:    def test_get_handler_empty_string(self):
+227-        """Empty string as handler name."""
+228-        from teller import get_handler
+229:        with pytest.raises(KeyError):
+230-            get_handler("")
+231-
+232:    def test_get_handler_whitespace(self):
+233-        """Whitespace as handler name."""
+234-        from teller import get_handler
+235:        with pytest.raises(KeyError):
+236-            get_handler("   ")
+237-
+--
+244-    """Edge cases specific to espeak handler."""
+245-
+246:    def test_quotes_in_text(self):
+247-        """Quotes should be passed correctly."""
+248-        from teller import get_handler
+--
+253-            # Should work - list form handles quotes
+254-
+255:    def test_single_quotes_in_text(self):
+256-        """Single quotes in text."""
+257-        from teller import get_handler
+--
+261-            handler.speak("It's working")
+262-
+263:    def test_backslashes_in_text(self):
+264-        """Backslashes in text."""
+265-        from teller import get_handler
+--
+269-            handler.speak("path\\to\\file")
+270-
+271:    def test_unicode_in_espeak(self):
+272-        """Unicode should be passed to espeak."""
+273-        from teller import get_handler
+--
+277-            handler.speak("Héllo wörld")
+278-
+279:    def test_espeak_not_found(self):
+280-        """espeak executable missing."""
+281-        from teller import get_handler
+--
+287-            handler.speak("test")  # Should not raise
+288-
+289:    def test_espeak_process_fails(self):
+290-        """espeak process fails to start."""
+291-        from teller import get_handler
+--
+303-    """Tests for bugs found in hardening round 1."""
+304-
+305:    def test_stop_doesnt_kill_external_espeak(self):
+306-        """Bug fix: stop() should only kill teller's process, not all espeak."""
+307-        import subprocess
+--
+311-        
+312-        if not shutil.which('espeak-ng') and not shutil.which('espeak'):
+313:            pytest.skip("espeak not installed")
+314-        
+315-        # Start external espeak process
+--
+330-        ext_proc.kill()
+331-    
+332:    def test_empty_speak_calls_stop(self):
+333-        """Bug fix: speak("") should call stop() like any other speak."""
+334-        from teller import get_handler
+335:        from unittest.mock import MagicMock, patch
+336-        
+337-        handler = get_handler('espeak')
+--
+351-        assert len(stop_called) > 0, "speak('') did not call stop()"
+352-    
+353:    def test_set_default_handler_uses_singleton(self):
+354-        """Bug fix: set_default_handler should use singleton from _handlers."""
+355-        from teller import set_default_handler
