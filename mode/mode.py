@@ -13,8 +13,9 @@ Matches tome.py requirements:
 - Per-mode isolated state
 """
 
+import copy
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Callable, Protocol, Any
 
 
@@ -84,6 +85,23 @@ class ModeConfig:
     on_exit: Callable[[], None] | None = None  # Called when leaving mode
 
 
+@dataclass
+class _HandlerFrame:
+    """Rollback state for one in-flight handler event."""
+    source_mode: str
+    source_setup_snapshot: dict | None = None
+
+    def record_setup(self, mode_name: str, state: dict) -> None:
+        if mode_name == self.source_mode:
+            self.source_setup_snapshot = copy.deepcopy(state)
+
+    def rollback(self, state_by_mode: dict[str, dict]) -> None:
+        source_state = state_by_mode[self.source_mode]
+        source_state.clear()
+        if self.source_setup_snapshot is not None:
+            source_state.update(copy.deepcopy(self.source_setup_snapshot))
+
+
 class Mode:
     """
     Modal state machine.
@@ -125,7 +143,7 @@ class Mode:
         self._state: dict[str, dict] = {}  # Per-mode state dicts
         self._quit_callback = quit_callback
         self._on_switch = on_switch
-        self._setup_generations: dict[str, int] = {}
+        self._handler_frames: list[_HandlerFrame] = []
 
     @property
     def current(self) -> str | None:
@@ -178,8 +196,6 @@ class Mode:
         # Initialize per-mode state if not exists
         if name not in self._state:
             self._state[name] = {}
-        if name not in self._setup_generations:
-            self._setup_generations[name] = 0
 
     def switch(
         self,
@@ -236,8 +252,9 @@ class Mode:
 
         if setup is not None:
             self._state[mode_name].clear()
-            self._state[mode_name].update(setup)
-            self._setup_generations[mode_name] += 1
+            self._state[mode_name].update(copy.deepcopy(setup))
+            if self._handler_frames:
+                self._handler_frames[-1].record_setup(mode_name, self._state[mode_name])
 
         # Call on_enter for new mode
         config = self._modes[mode_name]
@@ -289,7 +306,8 @@ class Mode:
         # This ensures get_state() always returns this handler's state,
         # even if the handler calls switch() to change modes mid-execution
         current_mode_name = self._current
-        setup_generation = self._setup_generations[current_mode_name]
+        handler_frame = _HandlerFrame(source_mode=current_mode_name)
+        self._handler_frames.append(handler_frame)
 
         # Create context for this handler call
         context = ModeContext(
@@ -309,9 +327,10 @@ class Mode:
             handler(event, context)
         except Exception:
             logger.exception(f"Handler for mode '{current_mode_name}' raised exception")
-            if self._setup_generations[current_mode_name] == setup_generation:
-                self._state[current_mode_name].clear()
+            handler_frame.rollback(self._state)
             # Don't re-raise - allow continued operation
+        finally:
+            self._handler_frames.pop()
 
     def list_modes(self) -> list[str]:
         """Return list of registered mode names."""

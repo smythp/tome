@@ -837,6 +837,114 @@ class TestHandlerExceptions:
         assert mode.current == 'read'
         assert mode._state['read'] == {'ready': 'destination'}
 
+    def test_handler_exception_after_source_setup_discards_top_level_mutation(self):
+        """A failed handler restores the committed source setup, not later edits."""
+        from mode import Mode
+
+        teller = MockTeller()
+        store = MockStore()
+        mode = Mode(teller=teller, store=store)
+
+        def handler(event, context):
+            context.get_state()["partial_before"] = event.char
+            context.switch("read", silent=True, setup={"ready": "destination"})
+            context.get_state()["partial_after"] = event.char
+            raise RuntimeError("failed after setup mutation")
+
+        mode.register("read", handler)
+        mode.switch("read", silent=True)
+
+        mode.handle(make_char_event("a"))
+
+        assert mode.current == "read"
+        assert mode._state["read"] == {"ready": "destination"}
+
+    def test_handler_exception_after_source_setup_discards_nested_mutation(self):
+        """Nested mutable setup values roll back to the committed snapshot."""
+        from mode import Mode
+
+        teller = MockTeller()
+        store = MockStore()
+        mode = Mode(teller=teller, store=store)
+
+        def handler(event, context):
+            context.switch(
+                "read",
+                silent=True,
+                setup={"nested": {"items": ["committed"]}},
+            )
+            state = context.get_state()
+            state["nested"]["items"].append("partial")
+            state["nested"]["extra"] = event.char
+            raise RuntimeError("failed after nested setup mutation")
+
+        mode.register("read", handler)
+        mode.switch("read", silent=True)
+
+        mode.handle(make_char_event("a"))
+
+        assert mode._state["read"] == {"nested": {"items": ["committed"]}}
+
+    def test_handler_exception_after_multiple_source_setups_restores_final_setup(self):
+        """When a handler installs source setup more than once, the final setup wins."""
+        from mode import Mode
+
+        teller = MockTeller()
+        store = MockStore()
+        mode = Mode(teller=teller, store=store)
+
+        def handler(event, context):
+            context.switch(
+                "read",
+                silent=True,
+                setup={"ready": "first", "items": ["first"]},
+            )
+            context.get_state()["items"].append("partial")
+            context.switch(
+                "read",
+                silent=True,
+                setup={"ready": "second", "items": ["second"]},
+            )
+            context.get_state()["partial_after"] = event.char
+            raise RuntimeError("failed after final setup")
+
+        mode.register("read", handler)
+        mode.switch("read", silent=True)
+
+        mode.handle(make_char_event("a"))
+
+        assert mode._state["read"] == {"ready": "second", "items": ["second"]}
+
+    def test_handler_exception_after_source_setup_ignores_caller_alias_mutation(self):
+        """Mutating the original setup object after switch does not alter rollback."""
+        from mode import Mode
+
+        teller = MockTeller()
+        store = MockStore()
+        mode = Mode(teller=teller, store=store)
+        setup = {"items": ["committed"], "nested": {"values": ["committed"]}}
+
+        def handler(event, context):
+            context.switch("read", silent=True, setup=setup)
+            setup["items"].append("caller")
+            setup["nested"]["values"].append("caller")
+            context.get_state()["items"].append(event.char)
+            raise RuntimeError("failed after alias mutation")
+
+        mode.register("read", handler)
+        mode.switch("read", silent=True)
+
+        mode.handle(make_char_event("a"))
+
+        assert mode._state["read"] == {
+            "items": ["committed"],
+            "nested": {"values": ["committed"]},
+        }
+        assert setup == {
+            "items": ["committed", "caller"],
+            "nested": {"values": ["committed", "caller"]},
+        }
+
     def test_handler_failed_switch_clears_partial_source_state(self):
         """If switch raises before committing, handler cleanup clears stale state."""
         from mode import Mode
