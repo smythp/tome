@@ -6,6 +6,7 @@ Tests written BEFORE implementation.
 
 import pytest
 import sqlite3
+import threading
 import tempfile
 import os
 from pathlib import Path
@@ -423,6 +424,76 @@ class TestAppendToList:
         assert len(store.list_items(list_id)) == 1
 
 
+class TestInsertInList:
+    """Test list insert operations."""
+
+    def test_insert_failure_rolls_back_shift(self, store, monkeypatch):
+        """A failed insert does not leave shifted item indexes committed."""
+        list_id = store.create_list("mylist")
+        store.append_to_list(list_id, "first")
+        store.append_to_list(list_id, "second")
+        store.append_to_list(list_id, "third")
+
+        def fail_add_list_item(*args, **kwargs):
+            raise sqlite3.OperationalError("forced insert failure")
+
+        monkeypatch.setattr(store, "_add_list_item", fail_add_list_item)
+
+        with pytest.raises(sqlite3.OperationalError, match="forced insert failure"):
+            store.insert_in_list(list_id, "inserted", 1)
+
+        items = store.list_items(list_id)
+        assert [item["value"] for item in items] == ["first", "second", "third"]
+        assert [item["item_index"] for item in items] == [0, 1, 2]
+
+    def test_insert_rejects_stale_index_without_mutation(self, store):
+        """An index past the current list length is rejected atomically."""
+        list_id = store.create_list("mylist")
+        store.append_to_list(list_id, "first")
+        store.append_to_list(list_id, "second")
+
+        with pytest.raises(ValueError, match="index"):
+            store.insert_in_list(list_id, "too far", 3)
+
+        items = store.list_items(list_id)
+        assert [item["value"] for item in items] == ["first", "second"]
+        assert [item["item_index"] for item in items] == [0, 1]
+
+    def test_concurrent_inserts_keep_unique_ordering(self, db_path):
+        """Competing inserts serialize without duplicate item indexes."""
+        from store import Store
+
+        store = Store(db_path)
+        list_id = store.create_list("mylist")
+        store.append_to_list(list_id, "tail")
+        barrier = threading.Barrier(6)
+        errors = []
+
+        def insert_value(value):
+            try:
+                worker_store = Store(db_path)
+                barrier.wait()
+                worker_store.insert_in_list(list_id, value, 0)
+            except Exception as exc:
+                errors.append(exc)
+
+        threads = [
+            threading.Thread(target=insert_value, args=(f"item{i}",))
+            for i in range(5)
+        ]
+        for thread in threads:
+            thread.start()
+        barrier.wait()
+        for thread in threads:
+            thread.join()
+
+        assert errors == []
+        items = Store(db_path).list_items(list_id)
+        indices = [item["item_index"] for item in items]
+        assert sorted(indices) == list(range(6))
+        assert len(indices) == len(set(indices))
+
+
 # ============================================================================
 # 4. Soft Delete and Restore
 # ============================================================================
@@ -553,6 +624,17 @@ class TestRootBufferProtection:
         """Root buffer cannot be deleted."""
         success, msg = store.delete_buffer(1)
         assert success is False
+
+
+class TestStoreConnectionSemantics:
+    """Test supported Store connection modes."""
+
+    def test_memory_database_is_rejected(self):
+        """Store does not silently accept per-connection in-memory databases."""
+        from store import Store
+
+        with pytest.raises(ValueError, match=":memory:"):
+            Store(":memory:")
 
 
 # ============================================================================

@@ -35,15 +35,24 @@ class Store:
     - Buffers can be nested (parent_id references)
     - Entries can be values, buffers, or lists
     - Soft delete preserves data for restoration
+
+    Store supports file-backed SQLite databases. SQLite's special `:memory:`
+    database is rejected because this store opens short-lived connections for
+    operations, and per-connection memory databases would not share schema.
     """
 
     def __init__(self, db_path: Union[str, Path], default_buffer_id: int = 1):
         """Initialize store with database path.
 
         Args:
-            db_path: Path to SQLite database file
+            db_path: Path to SQLite database file. `:memory:` is not supported.
             default_buffer_id: Default buffer for operations (usually root=1)
         """
+        if str(db_path) == ":memory:":
+            raise ValueError(
+                "Store requires a file-backed database; :memory: is not supported"
+            )
+
         self.db_path = Path(db_path)
         self.default_buffer_id = default_buffer_id
         self._init_db()
@@ -510,27 +519,39 @@ class Store:
             The list entry's ID
         """
         buffer_id = buffer_id if buffer_id is not None else self.default_buffer_id
+        conn, cursor = self._connect()
+        try:
+            cursor.execute("BEGIN IMMEDIATE")
+            cursor.execute("""
+                SELECT * FROM lore
+                WHERE key = ? AND buffer_id = ?
+                AND (deleted IS NULL OR deleted = 0)
+                ORDER BY id DESC LIMIT 1
+            """, (key, buffer_id))
+            existing = cursor.fetchone()
 
-        # Check for existing entry
-        existing = self.get(key, buffer_id)
+            cursor.execute("""
+                INSERT INTO lore (data_type, value, label, key, datetime, buffer_id)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (TYPE_LIST, "", None, key, datetime.now().isoformat(), buffer_id))
+            list_id = cursor.lastrowid
 
-        # Create the list entry
-        list_entry = self.set(
-            key=key,
-            value="",
-            buffer_id=buffer_id,
-            data_type=TYPE_LIST,
-        )
-        list_id = list_entry["id"]
+            if existing and existing.get("data_type") == TYPE_VALUE:
+                cursor.execute(
+                    "UPDATE lore SET deleted = 1 WHERE id = ?",
+                    (existing["id"],)
+                )
+                self._add_list_item(
+                    list_id, existing["value"], buffer_id, 0, conn=conn, cursor=cursor
+                )
 
-        # If there was an existing value, convert it to first list item
-        if existing and existing.get("data_type") == TYPE_VALUE:
-            # Soft delete the old entry
-            self.delete_entry(existing["id"])
-            # Add its value as first item
-            self._add_list_item(list_id, existing["value"], buffer_id, 0)
-
-        return list_id
+            conn.commit()
+            return list_id
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
 
     def list_items(self, list_id: int) -> list[Entry]:
         """Get all items in a list, ordered by index.
@@ -566,25 +587,31 @@ class Store:
         Raises:
             ValueError: If list doesn't exist or is deleted
         """
-        # Get the list entry to verify it exists and isn't deleted
         conn, cursor = self._connect()
         try:
-            cursor.execute("SELECT * FROM lore WHERE id = ?", (list_id,))
-            list_entry = cursor.fetchone()
-            if list_entry is None:
-                raise ValueError(f"List {list_id} not found")
-            if list_entry.get("deleted"):
-                raise ValueError(f"List {list_id} is deleted")
+            cursor.execute("BEGIN IMMEDIATE")
+            list_entry = self._get_mutable_list(cursor, list_id)
             buffer_id = list_entry["buffer_id"]
+
+            cursor.execute("""
+                SELECT MAX(item_index) AS max_index FROM lore
+                WHERE parent_id = ?
+                AND (deleted IS NULL OR deleted = 0)
+            """, (list_id,))
+            result = cursor.fetchone()
+            max_index = result["max_index"] if result else None
+            next_index = 0 if max_index is None else max_index + 1
+
+            self._add_list_item(
+                list_id, value, buffer_id, next_index, conn=conn, cursor=cursor
+            )
+            conn.commit()
+            return next_index
+        except Exception:
+            conn.rollback()
+            raise
         finally:
             conn.close()
-
-        # Get current items to determine next index
-        items = self.list_items(list_id)
-        next_index = len(items)
-
-        self._add_list_item(list_id, value, buffer_id, next_index)
-        return next_index
 
     def prepend_to_list(self, list_id: int, value: str) -> int:
         """Prepend a value to a list (becomes last item in UI).
@@ -609,53 +636,93 @@ class Store:
         Returns:
             The index where the item was inserted
         """
-        # Get the list entry to verify it exists and isn't deleted
+        if not isinstance(index, int):
+            raise TypeError(f"index must be an integer, got {type(index).__name__}")
+        if index < 0:
+            raise ValueError("index cannot be negative")
+
         conn, cursor = self._connect()
         try:
-            cursor.execute("SELECT * FROM lore WHERE id = ?", (list_id,))
-            list_entry = cursor.fetchone()
-            if list_entry is None:
-                raise ValueError(f"List {list_id} not found")
-            if list_entry.get("deleted"):
-                raise ValueError(f"List {list_id} is deleted")
+            cursor.execute("BEGIN IMMEDIATE")
+            list_entry = self._get_mutable_list(cursor, list_id)
             buffer_id = list_entry["buffer_id"]
 
-            # Shift existing items at or after index
+            cursor.execute("""
+                SELECT COUNT(*) AS item_count FROM lore
+                WHERE parent_id = ?
+                AND (deleted IS NULL OR deleted = 0)
+            """, (list_id,))
+            item_count = cursor.fetchone()["item_count"]
+            if index > item_count:
+                raise ValueError(
+                    f"index {index} is past the end of list {list_id} with {item_count} items"
+                )
+
             cursor.execute("""
                 UPDATE lore
                 SET item_index = item_index + 1
                 WHERE parent_id = ? AND item_index >= ?
                 AND (deleted IS NULL OR deleted = 0)
             """, (list_id, index))
+            self._add_list_item(
+                list_id, value, buffer_id, index, conn=conn, cursor=cursor
+            )
             conn.commit()
+            return index
+        except Exception:
+            conn.rollback()
+            raise
         finally:
             conn.close()
-
-        self._add_list_item(list_id, value, buffer_id, index)
-        return index
 
     def _add_list_item(
         self,
         list_id: int,
         value: str,
         buffer_id: int,
-        index: int
+        index: int,
+        conn: sqlite3.Connection = None,
+        cursor: sqlite3.Cursor = None,
     ) -> Entry:
         """Add an item to a list at a specific index."""
-        conn, cursor = self._connect()
+        owns_connection = conn is None and cursor is None
+        if owns_connection:
+            conn, cursor = self._connect()
+        elif conn is None or cursor is None:
+            raise ValueError("conn and cursor must be provided together")
+
         try:
             cursor.execute("""
                 INSERT INTO lore (data_type, value, label, key, datetime, buffer_id, parent_id, item_index)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """, (TYPE_VALUE, value, None, None, datetime.now().isoformat(),
                   buffer_id, list_id, index))
-            conn.commit()
-
             entry_id = cursor.lastrowid
             cursor.execute("SELECT * FROM lore WHERE id = ?", (entry_id,))
-            return cursor.fetchone()
+            entry = cursor.fetchone()
+            if owns_connection:
+                conn.commit()
+            return entry
+        except Exception:
+            if owns_connection:
+                conn.rollback()
+            raise
         finally:
-            conn.close()
+            if owns_connection:
+                conn.close()
+
+    def _get_mutable_list(self, cursor: sqlite3.Cursor, list_id: int) -> Entry:
+        """Return an active list entry for mutation, or raise ValueError."""
+        cursor.execute(
+            "SELECT * FROM lore WHERE id = ? AND data_type = ?",
+            (list_id, TYPE_LIST)
+        )
+        list_entry = cursor.fetchone()
+        if list_entry is None:
+            raise ValueError(f"List {list_id} not found")
+        if list_entry.get("deleted"):
+            raise ValueError(f"List {list_id} is deleted")
+        return list_entry
 
     # =========================================================================
     # Config Operations
