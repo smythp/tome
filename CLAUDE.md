@@ -2,11 +2,12 @@
 
 ## Commands
 - Install for development: `python -m venv /tmp/tome-venv && /tmp/tome-venv/bin/python -m pip install -e '.[dev]'`
-- Run application: `python tome.py`
-- Run with text output: `python tome.py --text`
-- Run headless smoke path: `timeout 3s python tome.py --text --no-listener`
-- Run tests: `python -m pytest`
-- Show help: `python tome.py --help`
+- Run application: `/tmp/tome-venv/bin/python tome.py`
+- Run with text output: `/tmp/tome-venv/bin/python tome.py --text`
+- Run headless smoke path: `timeout 3s /tmp/tome-venv/bin/python tome.py --text --no-listener`
+- Run installed console smoke path: `timeout 3s /tmp/tome-venv/bin/tome --text --no-listener`
+- Run tests: `/tmp/tome-venv/bin/python -m pytest`
+- Show help: `/tmp/tome-venv/bin/python tome.py --help` or `/tmp/tome-venv/bin/tome --help`
 
 ## Runtime Notes
 - Default database path: `~/.tome/lore.db`

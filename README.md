@@ -27,22 +27,22 @@ Runtime dependencies are declared in `pyproject.toml`: `pynput` and `pyperclip`.
 ## Running
 
 ```bash
-python tome.py
-python tome.py --text
-timeout 3s python tome.py --text --no-listener
-timeout 3s tome --text --no-listener
+/tmp/tome-venv/bin/python tome.py
+/tmp/tome-venv/bin/python tome.py --text
+timeout 3s /tmp/tome-venv/bin/python tome.py --text --no-listener
+timeout 3s /tmp/tome-venv/bin/tome --text --no-listener
 ```
 
 By default Tome uses `~/.tome/lore.db`. Pass `--db PATH` to use another SQLite database file. The database schema is created automatically by `Store`; `CREATE.sql` is kept as the schema reference and is not required for normal startup.
 
-`python tome.py --help` prints CLI help without creating `~/.tome` or a database.
+`/tmp/tome-venv/bin/python tome.py --help` and `/tmp/tome-venv/bin/tome --help` print CLI help without creating `~/.tome` or a database.
 
 ## Testing
 
 Run the full suite from the repository root:
 
 ```bash
-python -m pytest
+/tmp/tome-venv/bin/python -m pytest
 ```
 
 `pytest.ini` intentionally keeps `testpaths = .` so root-level integration tests such as `test_handlers.py`, `test_integration.py`, `test_wire.py`, and `test_tome_lifecycle.py` are collected along with package tests.
