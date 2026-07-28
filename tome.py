@@ -127,43 +127,54 @@ class App:
 
     def run(self, *, block: bool = True) -> None:
         """Start the application."""
-        self._start()
-        if not block:
-            return
-
-        self._install_signal_handlers()
+        self._begin_start()
+        if block:
+            self._install_signal_handlers()
         try:
+            self._start()
+            if not block:
+                return
+
             while self._running:
                 time.sleep(0.1)
         except KeyboardInterrupt:
             self.request_shutdown()
-        finally:
+        except Exception:
             self.shutdown()
-            self._restore_signal_handlers()
+            raise
+        finally:
+            if block:
+                self.shutdown()
+                self._restore_signal_handlers()
+
+    def _begin_start(self) -> None:
+        """Publish startup state before signals or listener callbacks can fire."""
+        if self._running:
+            raise RuntimeError("App already running")
+        self._running = True
+        self._shutdown_started = False
 
     def _start(self) -> None:
         """Start modes, welcome output, and listener."""
-        if self._running:
-            raise RuntimeError("App already running")
-
-        # Register modes
-        self._register_modes()
-
-        # Start in read mode
-        self.mode.switch("read")
-
-        # Speak welcome
-        self.teller.speak("Tome of lore")
+        if self._shutdown_started:
+            return
 
         try:
+            # Register modes
+            self._register_modes()
+
+            # Start in read mode
+            self.mode.switch("read")
+
+            # Speak welcome
+            self.teller.speak("Tome of lore")
+            if self._shutdown_started:
+                return
+
             self.listener.start(self._on_key)
         except Exception:
-            self._flush_output()
-            self.teller.stop()
+            self.shutdown()
             raise
-
-        self._running = True
-        self._shutdown_started = False
 
     def request_shutdown(self) -> None:
         """Request application shutdown from callbacks or signal handlers."""

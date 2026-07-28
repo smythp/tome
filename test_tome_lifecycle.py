@@ -46,6 +46,33 @@ def q_event():
     )
 
 
+class SigtermDuringStartListener:
+    def __init__(self, pid_file):
+        self.pid_file = pid_file
+        self.started = False
+        self.stopped = False
+
+    def start(self, callback):
+        self.started = True
+        wait_for_pid_file(self.pid_file)
+        os.kill(os.getpid(), signal.SIGTERM)
+
+    def stop(self):
+        self.stopped = True
+
+
+class CallbackDuringStartListener:
+    def __init__(self):
+        self.running = False
+
+    def start(self, callback):
+        self.running = True
+        callback(q_event())
+
+    def stop(self):
+        self.running = False
+
+
 def process_exists(pid):
     try:
         os.kill(pid, 0)
@@ -54,6 +81,14 @@ def process_exists(pid):
     except PermissionError:
         return True
     return True
+
+
+def wait_for_pid_file(pid_file):
+    deadline = time.time() + 5
+    while not pid_file.exists() and time.time() < deadline:
+        time.sleep(0.01)
+    if not pid_file.exists():
+        raise AssertionError('fake espeak pid file was not created')
 
 
 def read_pids(pid_file):
@@ -164,6 +199,23 @@ def test_no_listener_headless_path_starts_and_stops(tmp_path, capsys):
     assert app.running is False
 
 
+def test_callback_shutdown_during_listener_start_is_not_resurrected(tmp_path, capsys):
+    listener = CallbackDuringStartListener()
+    app = App(
+        db_path=str(tmp_path / 'lore.db'),
+        teller_mode='text',
+        listener=listener,
+    )
+
+    app.run(block=False)
+
+    captured = capsys.readouterr()
+    assert 'Tome of lore' in captured.out
+    assert 'quit' in captured.out
+    assert app.running is False
+    assert listener.running is False
+
+
 def test_redirected_text_output_survives_quit(tmp_path):
     result = run_python(
         f'''
@@ -199,6 +251,27 @@ def test_normal_quit_reaps_tome_owned_espeak_children(tmp_path, fake_espeak):
     )
 
     assert result.returncode == 0, result.stderr
+    pids = read_pids(pid_file)
+    assert pids
+    assert all(not process_exists(pid) for pid in pids)
+
+
+def test_blocking_run_sigterm_during_listener_start_reaps_espeak(tmp_path, fake_espeak, monkeypatch):
+    env, pid_file = fake_espeak
+    for key, value in env.items():
+        monkeypatch.setenv(key, value)
+    listener = SigtermDuringStartListener(pid_file)
+    app = App(
+        db_path=str(tmp_path / 'lore.db'),
+        teller_mode='espeak',
+        listener=listener,
+    )
+
+    app.run(block=True)
+
+    assert listener.started is True
+    assert listener.stopped is True
+    assert app.running is False
     pids = read_pids(pid_file)
     assert pids
     assert all(not process_exists(pid) for pid in pids)
@@ -247,6 +320,53 @@ def test_sigterm_reaps_tome_owned_espeak_children(tmp_path, fake_espeak):
             proc.wait(timeout=5)
 
     assert proc.returncode == 0, stderr
+    pids = read_pids(pid_file)
+    assert pids
+    assert all(not process_exists(pid) for pid in pids)
+
+
+def test_listener_start_failure_cleans_owned_startup_resources(tmp_path, fake_espeak):
+    env, pid_file = fake_espeak
+    result = run_python(
+        f'''
+        import os
+        import time
+        from pathlib import Path
+        from tome import App
+
+        class FailingStartListener:
+            def __init__(self):
+                self.stopped = False
+
+            def start(self, callback):
+                pid_file = Path(os.environ['FAKE_ESPEAK_PIDS'])
+                deadline = time.time() + 5
+                while not pid_file.exists() and time.time() < deadline:
+                    time.sleep(0.01)
+                raise RuntimeError('listener start failed')
+
+            def stop(self):
+                self.stopped = True
+
+        listener = FailingStartListener()
+        app = App(db_path={str(tmp_path / 'lore.db')!r}, teller_mode='espeak', listener=listener)
+        try:
+            app.run(block=False)
+        except RuntimeError as exc:
+            print(exc)
+        print(app.running)
+        print(listener.stopped)
+        ''',
+        env=env,
+        timeout=10,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.splitlines() == [
+        'listener start failed',
+        'False',
+        'True',
+    ]
     pids = read_pids(pid_file)
     assert pids
     assert all(not process_exists(pid) for pid in pids)
