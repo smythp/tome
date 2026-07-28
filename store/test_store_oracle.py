@@ -5,29 +5,35 @@ Uses Hypothesis to verify mathematical properties hold for ALL inputs.
 
 import pytest
 from hypothesis import given, strategies as st, assume, settings, HealthCheck
-import tempfile
+from itertools import count
 from pathlib import Path
-import os
 
 # Shared settings for all property tests
 property_settings = settings(
     max_examples=50,
-    suppress_health_check=[HealthCheck.function_scoped_fixture]
+    deadline=None,
+    derandomize=True,
+    database=None,
+    suppress_health_check=[HealthCheck.function_scoped_fixture],
 )
 
 
-def make_store():
-    """Create a fresh Store with temp database."""
+def make_store(db_dir: Path, index: int):
+    """Create a fresh Store with a test-scoped temporary database."""
     from store import Store
-    import uuid
-    db_path = Path(tempfile.gettempdir()) / f"test_lore_{uuid.uuid4().hex}.db"
+    db_path = db_dir / f"test_lore_{index}.db"
     return Store(db_path)
 
 
 @pytest.fixture
-def store_factory():
-    """Factory for creating Store instances."""
-    return make_store
+def store_factory(tmp_path):
+    """Factory for creating Store instances that pytest cleans up."""
+    next_index = count()
+
+    def factory():
+        return make_store(tmp_path, next(next_index))
+
+    return factory
 
 
 # Strategies for generating test data

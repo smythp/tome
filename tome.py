@@ -16,16 +16,19 @@ import time
 from types import FrameType
 from typing import Callable
 
+DEFAULT_DB_PATH = "~/.tome/lore.db"
+
 
 class _ShutdownRequested(BaseException):
     """Internal control flow used to unwind startup after handled shutdown."""
 
 
-def get_default_db() -> str:
-    """Get default database path (~/.tome/lore.db), creating dir if needed."""
-    tome_dir = os.path.expanduser("~/.tome")
-    os.makedirs(tome_dir, exist_ok=True)
-    return os.path.join(tome_dir, "lore.db")
+def get_default_db(*, create_parent: bool = False) -> str:
+    """Get the default database path, optionally creating its parent directory."""
+    db_path = os.path.expanduser(DEFAULT_DB_PATH)
+    if create_parent:
+        os.makedirs(os.path.dirname(db_path), exist_ok=True)
+    return db_path
 
 
 # RSPs
@@ -34,9 +37,6 @@ from teller import get_handler as get_teller
 from mark import Mark
 from mode import Mode
 from listener import EventType, KeyEvent, Listener, NoListener, PynputListener
-
-# External
-import pyperclip
 
 
 # =============================================================================
@@ -48,11 +48,13 @@ class App:
 
     def __init__(
         self,
-        db_path: str = "lore.db",
+        db_path: str | None = None,
         teller_mode: str = "espeak",
         listener: Listener | None = None,
     ):
         # Core RSPs
+        if db_path is None:
+            db_path = get_default_db(create_parent=True)
         self.store = Store(db_path)
         self.teller = get_teller(teller_mode)
         self.mark = Mark(self.store)
@@ -312,12 +314,13 @@ def main():
     parser = argparse.ArgumentParser(description="Tome of Lore")
     parser.add_argument("--text", action="store_true", help="Use text output instead of speech")
     parser.add_argument("--no-listener", action="store_true", help="Run without a keyboard listener")
-    parser.add_argument("--db", default=get_default_db(), help="Database file path (default: ~/.tome/lore.db)")
+    parser.add_argument("--db", default=None, help=f"Database file path (default: {DEFAULT_DB_PATH})")
     args = parser.parse_args()
 
     teller_mode = "text" if args.text else "espeak"
     listener = NoListener() if args.no_listener else None
-    app = App(db_path=args.db, teller_mode=teller_mode, listener=listener)
+    db_path = args.db if args.db is not None else get_default_db(create_parent=True)
+    app = App(db_path=db_path, teller_mode=teller_mode, listener=listener)
     app.run()
 
 

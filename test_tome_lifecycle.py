@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 
 from listener import EventType, KeyEvent, MockListener, NoListener, PynputListener
-from tome import App
+from tome import App, DEFAULT_DB_PATH, get_default_db
 
 
 ROOT = Path(__file__).resolve().parent
@@ -192,6 +192,35 @@ def test_production_default_selects_pynput_listener(tmp_path):
     app = App(db_path=str(tmp_path / 'lore.db'), teller_mode='text')
 
     assert isinstance(app.listener, PynputListener)
+
+
+def test_help_does_not_create_default_data_dir(tmp_path):
+    result = subprocess.run(
+        [sys.executable, 'tome.py', '--help'],
+        cwd=ROOT,
+        env=headless_env(HOME=str(tmp_path)),
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert DEFAULT_DB_PATH in result.stdout
+    assert not (tmp_path / '.tome').exists()
+
+
+def test_default_db_path_is_home_tome_and_created_on_app_start(tmp_path, monkeypatch):
+    monkeypatch.setenv('HOME', str(tmp_path))
+    expected = tmp_path / '.tome' / 'lore.db'
+
+    assert get_default_db() == str(expected)
+    assert not expected.parent.exists()
+
+    app = App(teller_mode='text', listener=NoListener())
+
+    assert app.store.db_path == expected
+    assert expected.parent.exists()
 
 
 def test_mock_listener_end_to_end_quit_without_display(tmp_path, capsys):

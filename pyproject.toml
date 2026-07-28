@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tome-of-lore"
+version = "0.1.0"
+description = "Keyboard-driven hierarchical data storage with audio output"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "pynput>=1.7",
+    "pyperclip>=1.8",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "hypothesis>=6",
+]
+
+[project.scripts]
+tome = "tome:main"
+
+[tool.setuptools]
+py-modules = ["handlers", "tome"]
+packages = ["listener", "mark", "mode", "store", "teller", "teller.handlers"]
