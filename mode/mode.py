@@ -91,15 +91,15 @@ class _HandlerFrame:
     source_mode: str
     source_setup_snapshot: dict | None = None
 
-    def record_setup(self, mode_name: str, state: dict) -> None:
+    def record_setup(self, mode_name: str, snapshot: dict) -> None:
         if mode_name == self.source_mode:
-            self.source_setup_snapshot = copy.deepcopy(state)
+            self.source_setup_snapshot = snapshot
 
     def rollback(self, state_by_mode: dict[str, dict]) -> None:
         source_state = state_by_mode[self.source_mode]
         source_state.clear()
         if self.source_setup_snapshot is not None:
-            source_state.update(copy.deepcopy(self.source_setup_snapshot))
+            source_state.update(self.source_setup_snapshot)
 
 
 class Mode:
@@ -227,6 +227,16 @@ class Mode:
         if setup is not None and not isinstance(setup, dict):
             raise TypeError(f"setup must be a dict, got {type(setup).__name__}")
 
+        prepared_setup = None
+        source_setup_snapshot = None
+        active_frame = self._handler_frames[-1] if self._handler_frames else None
+        if setup is not None:
+            # Prepare both independent copies before lifecycle callbacks or state
+            # mutation so a deepcopy failure cannot leave a half-applied switch.
+            prepared_setup = copy.deepcopy(setup)
+            if active_frame is not None and mode_name == active_frame.source_mode:
+                source_setup_snapshot = copy.deepcopy(prepared_setup)
+
         previous_mode = self._current
         if self._on_switch:
             try:
@@ -250,11 +260,11 @@ class Mode:
         # Update current mode
         self._current = mode_name
 
-        if setup is not None:
+        if prepared_setup is not None:
             self._state[mode_name].clear()
-            self._state[mode_name].update(copy.deepcopy(setup))
-            if self._handler_frames:
-                self._handler_frames[-1].record_setup(mode_name, self._state[mode_name])
+            self._state[mode_name].update(prepared_setup)
+            if active_frame is not None and source_setup_snapshot is not None:
+                active_frame.record_setup(mode_name, source_setup_snapshot)
 
         # Call on_enter for new mode
         config = self._modes[mode_name]

@@ -308,6 +308,35 @@ class TestModeSwitching:
         assert mode.current == 'read'
         assert calls == []
 
+    def test_uncopyable_setup_does_not_mutate_or_run_switch_hooks(self):
+        """A setup copy failure leaves the current mode and state untouched."""
+        from mode import Mode
+
+        class Uncopyable:
+            def __deepcopy__(self, memo):
+                raise RuntimeError("cannot copy setup")
+
+        teller = MockTeller()
+        store = MockStore()
+        calls = []
+        mode = Mode(
+            teller=teller,
+            store=store,
+            on_switch=lambda _source, _dest: calls.append('switch'),
+        )
+        mode.register('read', lambda e, c: None, on_exit=lambda: calls.append('exit'))
+        mode.register('history', lambda e, c: None)
+        mode.switch('read', silent=True, setup={'ready': True})
+        calls.clear()
+
+        with pytest.raises(RuntimeError, match="cannot copy setup"):
+            mode.switch('history', setup={'value': Uncopyable()})
+
+        assert mode.current == 'read'
+        assert mode._state['read'] == {'ready': True}
+        assert mode._state['history'] == {}
+        assert calls == []
+
 
 # =============================================================================
 # Event Routing Tests
