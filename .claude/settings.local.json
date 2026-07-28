@@ -21,7 +21,10 @@
       "Bash(git add:*)",
       "Bash(git commit:*)",
       "Bash(timeout 3 python:*)",
-      "Bash(.venv/bin/pytest:*)"
+      "Bash(.venv/bin/pytest:*)",
+      "Bash(qgun --help:*)",
+      "Bash(git ls-tree:*)",
+      "Bash(SKEIN_AGENT_ID=claude skein close:*)"
     ],
     "deny": []
   },
