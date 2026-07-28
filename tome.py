@@ -229,9 +229,10 @@ class App:
 
     def _handle_signal(self, signum: int, frame: FrameType | None) -> None:
         """Convert termination signals into ordered shutdown."""
-        self.request_shutdown()
         if self._unwind_on_signal:
+            self._running = False
             raise _ShutdownRequested()
+        self.request_shutdown()
 
     def _install_signal_handlers(self) -> None:
         """Install signal handlers for blocking production runs."""

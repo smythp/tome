@@ -85,6 +85,68 @@ class RecordingListener:
         self.stopped = True
 
 
+class GuardedSignalStream:
+    def __init__(self):
+        self.events = []
+        self.in_write = False
+        self.signal_handler = None
+        self.triggered = False
+        self.flushes_during_write = 0
+
+    def write(self, text):
+        if text == 'ready\n' and not self.triggered:
+            self.triggered = True
+            self.in_write = True
+            self.events.append('write-entered')
+            try:
+                self.signal_handler(signal.SIGTERM, None)
+            finally:
+                self.events.append('write-unwound')
+                self.in_write = False
+        else:
+            self.events.append(f'write:{text}')
+        return len(text)
+
+    def flush(self):
+        self.events.append('flush')
+        if self.in_write:
+            self.flushes_during_write += 1
+            raise RuntimeError('flush re-entered output')
+
+
+class GuardedCleanupListener:
+    def __init__(self, stream):
+        self.stream = stream
+        self.started = False
+        self.stopped = False
+
+    def start(self, callback):
+        self.started = True
+        self.stream.write('ready\n')
+
+    def stop(self):
+        self.stream.events.append('listener-stop')
+        if self.stream.in_write:
+            raise RuntimeError('listener cleanup re-entered output')
+        self.stopped = True
+
+
+class GuardedCleanupTeller:
+    def __init__(self, stream):
+        self.stream = stream
+        self.spoken = []
+        self.stopped = False
+
+    def speak(self, text, speed=270, wait=False):
+        self.spoken.append(text)
+
+    def stop(self):
+        self.stream.events.append('teller-stop')
+        if self.stream.in_write:
+            raise RuntimeError('teller cleanup re-entered output')
+        self.stopped = True
+
+
 class ShutdownOnSpeechTeller:
     def __init__(self, trigger):
         self.trigger = trigger
@@ -335,6 +397,32 @@ def test_sigterm_at_pre_listener_boundary_aborts_listener_start(tmp_path):
     assert listener.stopped is True
 
 
+def test_blocking_run_sigterm_defers_cleanup_until_output_unwinds(tmp_path, monkeypatch):
+    stream = GuardedSignalStream()
+    listener = GuardedCleanupListener(stream)
+    app = App(
+        db_path=str(tmp_path / 'lore.db'),
+        teller_mode='text',
+        listener=listener,
+    )
+    teller = GuardedCleanupTeller(stream)
+    app.teller = teller
+    app.mode._teller = teller
+    stream.signal_handler = app._handle_signal
+    monkeypatch.setattr(sys, 'stdout', stream)
+
+    app.run(block=True)
+
+    assert listener.started is True
+    assert listener.stopped is True
+    assert teller.stopped is True
+    assert app.running is False
+    assert stream.flushes_during_write == 0
+    assert stream.events.index('write-unwound') < stream.events.index('flush')
+    assert stream.events.index('write-unwound') < stream.events.index('listener-stop')
+    assert stream.events.index('write-unwound') < stream.events.index('teller-stop')
+
+
 def test_redirected_text_output_survives_quit(tmp_path):
     result = run_python(
         f'''
@@ -444,7 +532,7 @@ def test_sigterm_reaps_tome_owned_espeak_children(tmp_path, fake_espeak):
     assert all(not process_exists(pid) for pid in pids)
 
 
-def test_blocking_run_sigterm_during_normal_loop_exits_cleanly(tmp_path):
+def run_blocking_sigterm_normal_loop(db_path):
     proc = subprocess.Popen(
         [
             sys.executable,
@@ -460,7 +548,7 @@ def test_blocking_run_sigterm_during_normal_loop_exits_cleanly(tmp_path):
                     def stop(self):
                         print('stopped', flush=True)
 
-                app = App(db_path={str(tmp_path / 'lore.db')!r}, teller_mode='text', listener=ReadyListener())
+                app = App(db_path={str(db_path)!r}, teller_mode='text', listener=ReadyListener())
                 app.run(block=True)
                 print('done', flush=True)
                 '''
@@ -497,6 +585,11 @@ def test_blocking_run_sigterm_during_normal_loop_exits_cleanly(tmp_path):
     assert proc.returncode == 0, stderr
     assert 'stopped' in all_stdout
     assert 'done' in all_stdout
+
+
+def test_blocking_run_sigterm_during_normal_loop_exits_cleanly(tmp_path):
+    for iteration in range(20):
+        run_blocking_sigterm_normal_loop(tmp_path / f'lore-{iteration}.db')
 
 
 def test_listener_start_failure_cleans_owned_startup_resources(tmp_path, fake_espeak):
