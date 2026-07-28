@@ -518,6 +518,9 @@ class Store:
         Returns:
             The list entry's ID
         """
+        if key is None:
+            raise ValueError("key cannot be None")
+
         buffer_id = buffer_id if buffer_id is not None else self.default_buffer_id
         conn, cursor = self._connect()
         try:

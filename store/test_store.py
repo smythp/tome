@@ -365,6 +365,29 @@ class TestCreateList:
         items = store.list_items(list_id)
         assert items == []
 
+    def test_create_list_rejects_none_key_without_write(self, store):
+        """A None key is rejected before creating any list row."""
+        conn = sqlite3.connect(store.db_path)
+        try:
+            before_count = conn.execute("SELECT COUNT(*) FROM lore").fetchone()[0]
+        finally:
+            conn.close()
+
+        with pytest.raises(ValueError, match="key cannot be None"):
+            store.create_list(None)
+
+        conn = sqlite3.connect(store.db_path)
+        try:
+            after_count = conn.execute("SELECT COUNT(*) FROM lore").fetchone()[0]
+            null_list_count = conn.execute(
+                "SELECT COUNT(*) FROM lore WHERE data_type = 'list' AND key IS NULL"
+            ).fetchone()[0]
+        finally:
+            conn.close()
+
+        assert after_count == before_count
+        assert null_list_count == 0
+
 
 class TestListItems:
     """Test list item retrieval."""
