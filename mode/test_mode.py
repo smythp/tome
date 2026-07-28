@@ -710,6 +710,112 @@ class TestHandlerExceptions:
 
         assert 'call 2' in teller.spoken
 
+    @pytest.mark.parametrize(
+        (
+            "scenario",
+            "expected_current",
+            "expected_source_state",
+            "expected_destination_state",
+        ),
+        [
+            (
+                "no_switch",
+                "source",
+                {},
+                {},
+            ),
+            (
+                "invalid_switch",
+                "source",
+                {},
+                {},
+            ),
+            (
+                "same_mode_no_setup",
+                "source",
+                {},
+                {},
+            ),
+            (
+                "away_and_back_no_source_setup",
+                "source",
+                {},
+                {},
+            ),
+            (
+                "same_mode_explicit_setup",
+                "source",
+                {"ready": "source"},
+                {},
+            ),
+            (
+                "away_and_back_source_setup",
+                "source",
+                {"ready": "source"},
+                {},
+            ),
+            (
+                "different_mode_setup",
+                "destination",
+                {},
+                {"ready": "destination"},
+            ),
+        ],
+    )
+    def test_handler_exception_cleanup_depends_on_source_setup(
+        self,
+        scenario,
+        expected_current,
+        expected_source_state,
+        expected_destination_state,
+    ):
+        """Handler cleanup preserves only setup installed for the captured source."""
+        from mode import Mode
+
+        teller = MockTeller()
+        store = MockStore()
+        mode = Mode(teller=teller, store=store)
+
+        def handler(event, context):
+            context.get_state()["partial"] = event.char
+            if scenario == "invalid_switch":
+                context.switch("unknown")
+            elif scenario == "same_mode_no_setup":
+                context.switch("source", silent=True)
+            elif scenario == "away_and_back_no_source_setup":
+                context.switch("destination", silent=True)
+                context.switch("source", silent=True)
+            elif scenario == "same_mode_explicit_setup":
+                context.switch(
+                    "source",
+                    silent=True,
+                    setup={"ready": "source"},
+                )
+            elif scenario == "away_and_back_source_setup":
+                context.switch("destination", silent=True)
+                context.switch(
+                    "source",
+                    silent=True,
+                    setup={"ready": "source"},
+                )
+            elif scenario == "different_mode_setup":
+                context.switch(
+                    "destination",
+                    silent=True,
+                    setup={"ready": "destination"},
+                )
+            raise RuntimeError("handler failed")
+
+        mode.register("source", handler)
+        mode.register("destination", lambda _event, _context: None)
+        mode.switch("source", silent=True, setup={"stale": "source"})
+
+        mode.handle(make_char_event("a"))
+
+        assert mode.current == expected_current
+        assert mode._state["source"] == expected_source_state
+        assert mode._state["destination"] == expected_destination_state
+
     def test_handler_exception_after_same_mode_setup_keeps_destination_state(self):
         """A post-switch handler failure must not clear installed same-mode setup."""
         from mode import Mode

@@ -125,7 +125,7 @@ class Mode:
         self._state: dict[str, dict] = {}  # Per-mode state dicts
         self._quit_callback = quit_callback
         self._on_switch = on_switch
-        self._switch_generation = 0
+        self._setup_generations: dict[str, int] = {}
 
     @property
     def current(self) -> str | None:
@@ -178,6 +178,8 @@ class Mode:
         # Initialize per-mode state if not exists
         if name not in self._state:
             self._state[name] = {}
+        if name not in self._setup_generations:
+            self._setup_generations[name] = 0
 
     def switch(
         self,
@@ -235,8 +237,7 @@ class Mode:
         if setup is not None:
             self._state[mode_name].clear()
             self._state[mode_name].update(setup)
-
-        self._switch_generation += 1
+            self._setup_generations[mode_name] += 1
 
         # Call on_enter for new mode
         config = self._modes[mode_name]
@@ -288,7 +289,7 @@ class Mode:
         # This ensures get_state() always returns this handler's state,
         # even if the handler calls switch() to change modes mid-execution
         current_mode_name = self._current
-        switch_generation = self._switch_generation
+        setup_generation = self._setup_generations[current_mode_name]
 
         # Create context for this handler call
         context = ModeContext(
@@ -308,10 +309,7 @@ class Mode:
             handler(event, context)
         except Exception:
             logger.exception(f"Handler for mode '{current_mode_name}' raised exception")
-            if (
-                self._switch_generation == switch_generation
-                or self._current != current_mode_name
-            ):
+            if self._setup_generations[current_mode_name] == setup_generation:
                 self._state[current_mode_name].clear()
             # Don't re-raise - allow continued operation
 
