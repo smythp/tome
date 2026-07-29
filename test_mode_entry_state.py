@@ -108,7 +108,7 @@ def test_list_entry_uses_explicit_switch_setup_not_last_retrieved(tmp_path):
     ]
 
 
-def test_handler_exception_clears_failed_mode_state_and_continues(tmp_path):
+def test_handler_exception_restores_initial_empty_mode_state_and_continues(tmp_path):
     store = Store(tmp_path / "lore.db")
     teller = RecordingTeller()
     mode = Mode(teller, store)
@@ -135,6 +135,53 @@ def test_handler_exception_clears_failed_mode_state_and_continues(tmp_path):
     assert calls == ["a", "b"]
     assert teller.spoken == ["handled b"]
     assert mode._state["read"] == {"partial": "b"}
+
+
+def test_list_state_from_prior_event_survives_unrelated_later_exception(tmp_path):
+    store = Store(tmp_path / "lore.db")
+    teller = RecordingTeller()
+    mode = Mode(teller, store)
+    items = [
+        {"id": 1, "value": "a"},
+        {"id": 2, "value": "b"},
+        {"id": 3, "value": "c"},
+    ]
+
+    mode.register("list", list_handler, message="List")
+    mode.switch(
+        "list",
+        silent=True,
+        setup={
+            "list_id": 42,
+            "key": "l",
+            "buffer_id": 1,
+            "items": items,
+            "current_index": 0,
+        },
+    )
+
+    mode.handle(char_event("n"))
+
+    committed = {
+        "list_id": 42,
+        "key": "l",
+        "buffer_id": 1,
+        "items": items,
+        "current_index": 1,
+    }
+    assert mode._state["list"] == committed
+
+    def failing_list_handler(_event, ctx):
+        state = ctx.get_state()
+        state["items"].append({"id": 99, "value": "partial"})
+        state["current_index"] = 99
+        state["partial"] = True
+        raise RuntimeError("unrelated later failure")
+
+    mode.register("list", failing_list_handler, message="List")
+    mode.handle(char_event("x"))
+
+    assert mode._state["list"] == committed
 
 
 def test_app_uses_mode_switch_hook_without_runtime_monkeypatch(tmp_path):

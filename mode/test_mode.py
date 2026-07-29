@@ -750,25 +750,25 @@ class TestHandlerExceptions:
             (
                 "no_switch",
                 "source",
-                {},
+                {"stale": "source"},
                 {},
             ),
             (
                 "invalid_switch",
                 "source",
-                {},
+                {"stale": "source"},
                 {},
             ),
             (
                 "same_mode_no_setup",
                 "source",
-                {},
+                {"stale": "source"},
                 {},
             ),
             (
                 "away_and_back_no_source_setup",
                 "source",
-                {},
+                {"stale": "source"},
                 {},
             ),
             (
@@ -786,7 +786,7 @@ class TestHandlerExceptions:
             (
                 "different_mode_setup",
                 "destination",
-                {},
+                {"stale": "source"},
                 {"ready": "destination"},
             ),
         ],
@@ -798,7 +798,7 @@ class TestHandlerExceptions:
         expected_source_state,
         expected_destination_state,
     ):
-        """Handler cleanup preserves only setup installed for the captured source."""
+        """Handler cleanup restores the source event-entry snapshot by default."""
         from mode import Mode
 
         teller = MockTeller()
@@ -974,8 +974,8 @@ class TestHandlerExceptions:
             "nested": {"values": ["committed", "caller"]},
         }
 
-    def test_handler_failed_switch_clears_partial_source_state(self):
-        """If switch raises before committing, handler cleanup clears stale state."""
+    def test_handler_failed_switch_restores_initial_empty_source_state(self):
+        """If switch raises before committing, an initially empty source stays empty."""
         from mode import Mode
 
         teller = MockTeller()
@@ -993,6 +993,93 @@ class TestHandlerExceptions:
 
         assert mode.current == 'read'
         assert mode._state['read'] == {}
+
+    def test_handler_exception_restores_entry_snapshot_after_prior_commits(self):
+        """Successful state from earlier events survives a later failing event."""
+        from mode import Mode
+
+        teller = MockTeller()
+        store = MockStore()
+        mode = Mode(teller=teller, store=store)
+
+        def handler(event, context):
+            state = context.get_state()
+            state.setdefault("items", []).append(event.char)
+            if event.char == "x":
+                state["partial"] = "failed event"
+                raise RuntimeError("unrelated later failure")
+
+        mode.register("read", handler)
+        mode.switch("read", silent=True)
+
+        mode.handle(make_char_event("a"))
+        mode.handle(make_char_event("b"))
+
+        assert mode._state["read"] == {"items": ["a", "b"]}
+
+        mode.handle(make_char_event("x"))
+
+        assert mode._state["read"] == {"items": ["a", "b"]}
+
+        mode.handle(make_char_event("c"))
+
+        assert mode._state["read"] == {"items": ["a", "b", "c"]}
+
+    def test_different_mode_switch_failure_restores_source_and_preserves_destination(self):
+        """A failing source handler does not roll back destination setup."""
+        from mode import Mode
+
+        teller = MockTeller()
+        store = MockStore()
+        mode = Mode(teller=teller, store=store)
+
+        def handler(event, context):
+            context.get_state()["partial"] = event.char
+            context.switch("destination", silent=True, setup={"ready": "destination"})
+            context.get_state()["after_switch"] = event.char
+            raise RuntimeError("failed after destination switch")
+
+        mode.register("source", handler)
+        mode.register("destination", lambda _event, _context: None)
+        mode.switch("source", silent=True, setup={"committed": "source"})
+
+        mode.handle(make_char_event("a"))
+
+        assert mode.current == "destination"
+        assert mode._state["source"] == {"committed": "source"}
+        assert mode._state["destination"] == {"ready": "destination"}
+
+    def test_nested_handler_failure_rolls_back_inner_frame_only(self):
+        """Nested handle() calls keep their rollback frames independent."""
+        from mode import Mode
+
+        teller = MockTeller()
+        store = MockStore()
+        mode = Mode(teller=teller, store=store)
+
+        def outer_handler(_event, context):
+            state = context.get_state()
+            state["events"].append("outer-before")
+            context.switch("inner", silent=True, setup={"ready": "inner"})
+            mode.handle(make_char_event("i"))
+            state["events"].append("outer-after")
+
+        def inner_handler(event, context):
+            state = context.get_state()
+            state["partial"] = event.char
+            raise RuntimeError("inner failed")
+
+        mode.register("outer", outer_handler)
+        mode.register("inner", inner_handler)
+        mode.switch("outer", silent=True, setup={"events": ["committed"]})
+
+        mode.handle(make_char_event("o"))
+
+        assert mode.current == "inner"
+        assert mode._state["outer"] == {
+            "events": ["committed", "outer-before", "outer-after"]
+        }
+        assert mode._state["inner"] == {"ready": "inner"}
 
 
 # =============================================================================

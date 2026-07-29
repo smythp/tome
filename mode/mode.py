@@ -89,17 +89,16 @@ class ModeConfig:
 class _HandlerFrame:
     """Rollback state for one in-flight handler event."""
     source_mode: str
-    source_setup_snapshot: dict | None = None
+    rollback_snapshot: dict
 
     def record_setup(self, mode_name: str, snapshot: dict) -> None:
         if mode_name == self.source_mode:
-            self.source_setup_snapshot = snapshot
+            self.rollback_snapshot = snapshot
 
     def rollback(self, state_by_mode: dict[str, dict]) -> None:
         source_state = state_by_mode[self.source_mode]
         source_state.clear()
-        if self.source_setup_snapshot is not None:
-            source_state.update(self.source_setup_snapshot)
+        source_state.update(self.rollback_snapshot)
 
 
 class Mode:
@@ -316,7 +315,10 @@ class Mode:
         # This ensures get_state() always returns this handler's state,
         # even if the handler calls switch() to change modes mid-execution
         current_mode_name = self._current
-        handler_frame = _HandlerFrame(source_mode=current_mode_name)
+        handler_frame = _HandlerFrame(
+            source_mode=current_mode_name,
+            rollback_snapshot=copy.deepcopy(self._state[current_mode_name]),
+        )
         self._handler_frames.append(handler_frame)
 
         # Create context for this handler call
